@@ -5,14 +5,8 @@ import {
   Compass, 
   Activity, 
   Waves, 
-  Cpu, 
-  AlertOctagon, 
-  CheckCircle, 
-  ArrowDown, 
-  Sparkles,
-  Sliders,
-  ShieldAlert,
-  RotateCcw
+  Cpu,
+  ArrowDown
 } from 'lucide-react';
 
 export default function SensorFusionSection() {

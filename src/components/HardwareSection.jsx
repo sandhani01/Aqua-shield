@@ -1,233 +1,191 @@
-import React, { useState } from 'react';
-import { hardwareComponents } from '../data/hardwareComponents';
+import React from 'react';
 import { 
   Cpu, 
   Camera, 
   Sun, 
-  Gauge, 
-  Compass, 
   Activity, 
-  Waves, 
   Zap, 
-  Anchor, 
+  Waves, 
+  Compass, 
+  Settings, 
   BatteryCharging, 
-  HardDrive, 
-  GitFork, 
-  Shield,
-  Layers,
-  CheckCircle2,
-  Info
+  Anchor, 
+  ArrowRight, 
+  Layers 
 } from 'lucide-react';
 
-const iconMap = {
-  Cpu,
-  Camera,
-  Sun,
-  Gauge,
-  Compass,
-  Activity,
-  Waves,
-  Zap,
-  Anchor,
-  BatteryCharging,
-  HardDrive,
-  GitFork,
-  Shield
-};
-
 export default function HardwareSection() {
-  const [selectedFilter, setSelectedFilter] = useState('All');
-  const [activeComponent, setActiveComponent] = useState(hardwareComponents[0]);
-
-  const categories = ['All', 'Compute & Control', 'Vision Subsystem', 'Navigation & Kinematics', 'Diagnostics', 'Environmental', 'Propulsion', 'Recovery & Safety', 'Power Subsystem', 'Chassis & Ingress'];
-
-  const filtered = selectedFilter === 'All'
-    ? hardwareComponents
-    : hardwareComponents.filter(c => c.category.toLowerCase().includes(selectedFilter.toLowerCase()));
+  const components = [
+    {
+      name: "ESP32-S3 Microcontroller",
+      category: "Main Processing Unit",
+      spec: "Dual-Core 240MHz • Wi-Fi / Bluetooth • FreeRTOS",
+      role: "Coordinates sensors, telemetry, and deterministic sensor fusion engine.",
+      icon: Cpu
+    },
+    {
+      name: "OV2640 Optical Camera",
+      category: "Visual Imaging",
+      spec: "2MP Sensor • 120° Wide-Angle • 1080P Stream",
+      role: "Streams real-time visual inspection footage through transparent dome.",
+      icon: Camera
+    },
+    {
+      name: "12-LED Concentric Ring",
+      category: "Submerged Illumination",
+      spec: "12x High-Lumen White LEDs • PWM Dimming",
+      role: "Cuts through pitch-dark and murky drainage water.",
+      icon: Sun
+    },
+    {
+      name: "MPU6050 6-DOF IMU",
+      category: "Attitude & Tilt Gyro",
+      spec: "±250°/s Gyro • ±2g Accelerometer • I2C",
+      role: "Detects abnormal tilt (>8.5° threshold) to prevent capsizing.",
+      icon: Activity
+    },
+    {
+      name: "ACS712 Current Sensor",
+      category: "Motor Load Shunt",
+      spec: "Hall-Effect Current Sensing • 0–5A Range",
+      role: "Detects increased motor drag (1.8A) indicating physical blockage.",
+      icon: Zap
+    },
+    {
+      name: "Turbine Flow Sensor",
+      category: "Hydrodynamic Velocity",
+      spec: "Hall Turbine Wheel • 1–30 L/min Baseline",
+      role: "Monitors rushing water velocity and sudden hydraulic choke surges.",
+      icon: Waves
+    },
+    {
+      name: "Rotary Encoder",
+      category: "Spatial Odometry",
+      spec: "Optical Quadrature • ±2 cm Spatial Precision",
+      role: "Calculates exact downline travel distance from entrance.",
+      icon: Compass
+    },
+    {
+      name: "4 Geared DC Motors",
+      category: "Propulsion & Traction",
+      spec: "12V High-Torque Geared DC • Protected Enclosure",
+      role: "Drives 4 rugged wheels through flooded drainage channel beds.",
+      icon: Settings
+    },
+    {
+      name: "3S Li-ion Battery & BMS",
+      category: "Onboard Power",
+      spec: "11.6V Pack • Integrated BMS Overcurrent Protection",
+      role: "Powers all electronics for >45 minutes of continuous inspection.",
+      icon: BatteryCharging
+    },
+    {
+      name: "Titanium Servo Anchor",
+      category: "Fail-Safe Actuator",
+      spec: "High-Torque Waterproof Servo • Articulated Flukes",
+      role: "Locks into conduit invert during emergencies to prevent drift.",
+      icon: Anchor
+    }
+  ];
 
   return (
-    <section id="hardware" className="relative py-20 md:py-28 bg-[#050811] border-t border-cyan-950/80">
-      
-      {/* Background Tech Elements */}
-      <div className="absolute inset-0 bg-grid-pattern opacity-20 pointer-events-none"></div>
-
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section id="technology" className="py-20 md:py-28 bg-[#070b16] border-t border-slate-800">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
-        {/* Header */}
+        {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-14">
-          <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 text-xs font-mono uppercase mb-4">
-            <Layers className="w-3.5 h-3.5 text-cyan-400" />
-            <span>SECTION 04 // HARDWARE ARCHITECTURE</span>
+          <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 text-xs font-mono uppercase tracking-wider mb-4">
+            <Layers className="w-4 h-4 text-cyan-400" />
+            <span>HARDWARE STACK &amp; ARCHITECTURE</span>
           </div>
 
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-white font-heading">
-            Inside <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-400">AQUA-SHIELD</span>
+          <h2 className="text-4xl sm:text-5xl font-black tracking-tight text-white mb-4 font-heading">
+            HOW WE BUILT IT
           </h2>
 
-          <p className="mt-4 text-base sm:text-lg text-slate-300 leading-relaxed">
-            13 tightly integrated, low-cost commercial off-the-shelf components engineered into a pressure-sealed, hydrodynamic inspection capsule.
+          <p className="text-lg sm:text-xl text-slate-300 font-normal">
+            A modular architecture pairing commercial off-the-shelf electronics with deterministic edge fusion.
           </p>
         </div>
 
-        {/* Interactive Exploded View Banner */}
-        <div className="mb-14 p-6 sm:p-8 rounded-2xl bg-gradient-to-r from-[#0a1224] via-[#0e1b38] to-[#0a1224] border border-cyan-500/30 shadow-2xl relative overflow-hidden">
-          
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
-            <div>
-              <span className="text-xs font-mono uppercase tracking-widest text-cyan-400">
-                SYSTEM SCHEMATIC // EXPLODED ARRANGEMENT
-              </span>
-              <h3 className="text-xl sm:text-2xl font-bold text-white font-heading mt-1">
-                Modular Submerged Architecture (Front to Rear)
-              </h3>
+        {/* CLEAN ARCHITECTURE DIAGRAM (CAMERA → ESP32 → SENSOR FUSION → SAFETY DECISION → MOTOR / ANCHOR) */}
+        <div className="mb-14 p-6 sm:p-8 rounded-2xl bg-gradient-to-r from-[#091226] via-[#060b18] to-[#091226] border border-cyan-500/30 shadow-xl overflow-x-auto">
+          <div className="flex items-center justify-between min-w-[760px] gap-2 font-mono text-xs">
+            
+            {/* 1. CAMERA */}
+            <div className="p-3.5 rounded-xl bg-slate-900 border border-cyan-500/40 text-center flex-1">
+              <Camera className="w-5 h-5 text-cyan-400 mx-auto mb-1" />
+              <span className="font-bold text-white block">CAMERA</span>
+              <span className="text-[10px] text-slate-400">OV2640 + LEDs</span>
             </div>
-            <div className="flex items-center space-x-2 text-xs font-mono text-slate-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>STANDARDIZED MODULAR INTERFACE</span>
+
+            <ArrowRight className="w-4 h-4 text-cyan-500/60 shrink-0" />
+
+            {/* 2. ESP32 */}
+            <div className="p-3.5 rounded-xl bg-slate-900 border border-sky-500/40 text-center flex-1">
+              <Cpu className="w-5 h-5 text-sky-400 mx-auto mb-1" />
+              <span className="font-bold text-white block">ESP32-S3</span>
+              <span className="text-[10px] text-slate-400">Dual-Core 240MHz</span>
             </div>
+
+            <ArrowRight className="w-4 h-4 text-cyan-500/60 shrink-0" />
+
+            {/* 3. SENSOR FUSION */}
+            <div className="p-3.5 rounded-xl bg-slate-900 border border-blue-500/40 text-center flex-1">
+              <Activity className="w-5 h-5 text-blue-400 mx-auto mb-1" />
+              <span className="font-bold text-white block">SENSOR FUSION</span>
+              <span className="text-[10px] text-slate-400">Encoder + Shunt + IMU</span>
+            </div>
+
+            <ArrowRight className="w-4 h-4 text-cyan-500/60 shrink-0" />
+
+            {/* 4. SAFETY DECISION */}
+            <div className="p-3.5 rounded-xl bg-slate-900 border border-amber-500/40 text-center flex-1">
+              <Zap className="w-5 h-5 text-amber-400 mx-auto mb-1" />
+              <span className="font-bold text-white block">SAFETY DECISION</span>
+              <span className="text-[10px] text-slate-400">&lt;20ms Logic Loop</span>
+            </div>
+
+            <ArrowRight className="w-4 h-4 text-cyan-500/60 shrink-0" />
+
+            {/* 5. MOTOR / ANCHOR */}
+            <div className="p-3.5 rounded-xl bg-slate-900 border border-emerald-500/40 text-center flex-1">
+              <Anchor className="w-5 h-5 text-emerald-400 mx-auto mb-1" />
+              <span className="font-bold text-white block">MOTOR / ANCHOR</span>
+              <span className="text-[10px] text-slate-400">H-Bridge + Servo Lock</span>
+            </div>
+
           </div>
-
-          {/* Graphical Exploded Pipeline Representation */}
-          <div className="relative py-6 overflow-x-auto">
-            <div className="flex items-center justify-between min-w-[860px] gap-3 px-2">
-              
-              {/* Node 1: Acrylic Optical Dome */}
-              <div className="flex-1 p-3 rounded-xl bg-slate-900/90 border border-cyan-500/40 text-center relative group">
-                <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-cyan-950 flex items-center justify-center text-cyan-300">
-                  <Camera className="w-4 h-4" />
-                </div>
-                <div className="text-[11px] font-bold text-white font-heading">Front Optics</div>
-                <div className="text-[9px] font-mono text-cyan-400">Dome + Camera</div>
-                <div className="text-[8px] text-slate-400 mt-1">120° FOV Optical Lens</div>
-              </div>
-
-              <div className="text-cyan-500/40 font-mono text-xs">→</div>
-
-              {/* Node 2: LED Ring */}
-              <div className="flex-1 p-3 rounded-xl bg-slate-900/90 border border-cyan-500/40 text-center relative group">
-                <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-cyan-950 flex items-center justify-center text-cyan-300">
-                  <Sun className="w-4 h-4" />
-                </div>
-                <div className="text-[11px] font-bold text-white font-heading">Illumination</div>
-                <div className="text-[9px] font-mono text-cyan-400">12-LED Ring</div>
-                <div className="text-[8px] text-slate-400 mt-1">PWM Brightness Ring</div>
-              </div>
-
-              <div className="text-cyan-500/40 font-mono text-xs">→</div>
-
-              {/* Node 3: Sensors & MCU */}
-              <div className="flex-1 p-3 rounded-xl bg-cyan-950/60 border-2 border-cyan-400 text-center relative group shadow-[0_0_15px_rgba(0,240,255,0.3)]">
-                <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-cyan-400 text-slate-950 flex items-center justify-center">
-                  <Cpu className="w-4 h-4" />
-                </div>
-                <div className="text-[11px] font-bold text-cyan-200 font-heading">Compute Core</div>
-                <div className="text-[9px] font-mono text-cyan-300 font-bold">ESP32 + Sensors</div>
-                <div className="text-[8px] text-slate-300 mt-1">MPU6050 • ACS712 • Flow</div>
-              </div>
-
-              <div className="text-cyan-500/40 font-mono text-xs">→</div>
-
-              {/* Node 4: Battery & Storage */}
-              <div className="flex-1 p-3 rounded-xl bg-slate-900/90 border border-cyan-500/40 text-center relative group">
-                <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-cyan-950 flex items-center justify-center text-cyan-300">
-                  <BatteryCharging className="w-4 h-4" />
-                </div>
-                <div className="text-[11px] font-bold text-white font-heading">Power Unit</div>
-                <div className="text-[9px] font-mono text-cyan-400">Li-ion 2S2P + SD</div>
-                <div className="text-[8px] text-slate-400 mt-1">7.4V BMS Isolated</div>
-              </div>
-
-              <div className="text-cyan-500/40 font-mono text-xs">→</div>
-
-              {/* Node 5: Propulsion */}
-              <div className="flex-1 p-3 rounded-xl bg-slate-900/90 border border-cyan-500/40 text-center relative group">
-                <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-cyan-950 flex items-center justify-center text-cyan-300">
-                  <Zap className="w-4 h-4" />
-                </div>
-                <div className="text-[11px] font-bold text-white font-heading">Drive Units</div>
-                <div className="text-[9px] font-mono text-cyan-400">Dual Thrusters</div>
-                <div className="text-[8px] text-slate-400 mt-1">Shrouded Anti-Tangle</div>
-              </div>
-
-              <div className="text-cyan-500/40 font-mono text-xs">→</div>
-
-              {/* Node 6: Anchor & Tether */}
-              <div className="flex-1 p-3 rounded-xl bg-slate-900/90 border border-amber-500/40 text-center relative group">
-                <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-amber-950 flex items-center justify-center text-amber-300">
-                  <Anchor className="w-4 h-4" />
-                </div>
-                <div className="text-[11px] font-bold text-white font-heading">Safety Line</div>
-                <div className="text-[9px] font-mono text-amber-300">Anchor & Tether</div>
-                <div className="text-[8px] text-slate-400 mt-1">Servo Lock & 50kg Cord</div>
-              </div>
-
-            </div>
-          </div>
-
         </div>
 
-        {/* Filter Category Chips */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mb-10">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedFilter(cat)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all ${
-                selectedFilter === cat
-                  ? 'bg-cyan-400 text-slate-950 font-bold shadow-[0_0_12px_rgba(0,240,255,0.4)]'
-                  : 'bg-slate-900/80 border border-slate-800 text-slate-300 hover:border-cyan-500/50 hover:text-cyan-300'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-
-        {/* 13 Components Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filtered.map((item) => {
-            const Icon = iconMap[item.icon] || Cpu;
-            const isSelected = activeComponent.id === item.id;
+        {/* Compact Hardware Cards (Grid of Key Components) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {components.map((c, idx) => {
+            const Icon = c.icon;
             return (
-              <div
-                key={item.id}
-                onClick={() => setActiveComponent(item)}
-                className={`cursor-pointer p-5 rounded-xl border transition-all duration-200 ${
-                  isSelected
-                    ? 'bg-slate-900/90 border-cyan-400 shadow-[0_0_25px_rgba(0,240,255,0.2)]'
-                    : 'bg-slate-900/40 border-slate-800 hover:border-slate-700 hover:bg-slate-900/60'
-                }`}
+              <div 
+                key={idx}
+                className="p-5 rounded-2xl bg-gradient-to-b from-[#091122] to-[#050a16] border border-slate-800 hover:border-cyan-500/40 transition-all flex flex-col justify-between shadow-md"
               >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center space-x-3">
-                    <div className="p-2.5 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
-                      <Icon className="w-5 h-5" />
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-cyan-400">
+                      <Icon className="w-4 h-4" />
                     </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white font-heading">
-                        {item.name}
-                      </h4>
-                      <span className="text-[10px] font-mono text-cyan-400 uppercase">
-                        {item.tag}
-                      </span>
-                    </div>
+                    <span className="text-[9px] font-mono text-slate-500 uppercase">{c.category}</span>
                   </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                    {item.voltage}
-                  </span>
-                </div>
 
-                <p className="text-xs text-slate-300 leading-relaxed mb-3">
-                  {item.description}
-                </p>
+                  <h3 className="text-base font-bold text-white mb-1 font-heading">
+                    {c.name}
+                  </h3>
 
-                <div className="pt-2 border-t border-slate-800/80 space-y-1">
-                  <div className="text-[11px] font-mono text-slate-400">
-                    <span className="text-slate-500">SPEC:</span> {item.specs}
-                  </div>
-                  <div className="text-[11px] font-mono text-emerald-400">
-                    <span className="text-slate-500">ROLE:</span> {item.highlight}
-                  </div>
+                  <p className="text-xs font-mono text-cyan-300 font-semibold mb-2">
+                    {c.spec}
+                  </p>
+
+                  <p className="text-xs text-slate-400 leading-relaxed font-normal">
+                    {c.role}
+                  </p>
                 </div>
               </div>
             );

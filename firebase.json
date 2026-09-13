@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "aqua-shield",
     "public": "dist",
     "ignore": [
       "firebase.json",

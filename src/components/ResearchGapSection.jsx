@@ -1,102 +1,131 @@
 import React from 'react';
-import { 
-  BookOpen, 
-  Lightbulb, 
-  Search, 
-  AlertCircle, 
-  CheckCircle2, 
-  ShieldCheck, 
-  Layers 
-} from 'lucide-react';
+import { BookOpen, AlertTriangle, CheckCircle2, Search } from 'lucide-react';
 
 export default function ResearchGapSection() {
   return (
-    <section id="research-gap" className="relative py-20 md:py-28 bg-[#050811] border-t border-cyan-950/80">
-      
-      {/* Background Tech Grid */}
-      <div className="absolute inset-0 bg-grid-pattern opacity-20 pointer-events-none"></div>
-
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section id="research-gap" className="py-20 md:py-28 bg-[#050811] border-t border-slate-800">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
-        {/* Header */}
-        <div className="text-center max-w-3xl mx-auto mb-14">
-          <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 text-xs font-mono uppercase mb-4">
-            <BookOpen className="w-3.5 h-3.5 text-cyan-400" />
-            <span>SECTION 14 // ACADEMIC & ENGINEERING CONTEXT</span>
+        {/* Section Header */}
+        <div className="text-center max-w-3xl mx-auto mb-16">
+          <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 text-xs font-mono uppercase tracking-wider mb-4">
+            <BookOpen className="w-4 h-4 text-cyan-400" />
+            <span>RESEARCH &amp; ACADEMIC CONTEXT</span>
           </div>
 
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-white font-heading">
-            What We Learned from <span className="text-cyan-400">Existing Systems</span>
+          <h2 className="text-4xl sm:text-5xl font-black tracking-tight text-white mb-4 font-heading">
+            THE RESEARCH GAP WE SOLVE
           </h2>
 
-          <p className="mt-4 text-base sm:text-lg text-slate-300 leading-relaxed">
-            Honest engineering positioning based on extensive literature review of industrial pipeline crawlers and municipal sewer maintenance equipment.
+          <p className="text-lg sm:text-xl text-slate-300 font-normal leading-relaxed">
+            Why existing pipeline robots fail in flash-flood emergencies, and what makes AQUA-SHIELD unique.
           </p>
         </div>
 
-        {/* Two-Column Technical Gap Analysis */}
-        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+        {/* 3-Part Comparative Cards (Existing vs Limitation vs Solution) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* Left: What Existing Systems Already Do (Honest Acknowledgement) */}
-          <div className="p-6 sm:p-8 rounded-2xl bg-slate-900/50 border border-slate-800 flex flex-col justify-between">
+          {/* Card 1: Existing Systems */}
+          <div className="p-8 rounded-2xl bg-gradient-to-b from-[#0a1226] to-[#060c18] border border-slate-800 flex flex-col justify-between shadow-lg">
             <div>
-              <div className="flex items-center space-x-2 text-xs font-mono text-slate-400 uppercase mb-3">
-                <Search className="w-4 h-4 text-cyan-400" />
-                <span>STATE OF THE ART REVIEW</span>
+              <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-slate-800 text-slate-300 text-xs font-mono mb-4">
+                <Search className="w-3.5 h-3.5 text-slate-400" />
+                <span>STATE OF THE ART</span>
               </div>
 
-              <h3 className="text-xl font-bold text-white font-heading mb-4">
-                What Existing Inspection Systems Already Demonstrate
+              <h3 className="text-2xl font-bold text-white mb-3 font-heading">
+                Existing Industrial Systems
               </h3>
 
-              <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 text-sm text-slate-200 leading-relaxed mb-4 italic">
-                “Existing sewer and pipe inspection robots already demonstrate robotic inspection using cameras, sensors and autonomous/remote operation.”
-              </div>
-
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Industrial crawlers (such as CUES, IBAK, and Inuktun) prove that tracked vehicles and pan-tilt cameras can record structural defects and root intrusions in dry or partially filled sewers.
+              <p className="text-base text-slate-300 leading-relaxed mb-6">
+                Commercial sewer crawlers (CUES, IBAK, Inuktun) excel at scheduled CCTV structural audits inside dry, cleared conduits.
               </p>
-            </div>
 
-            <div className="mt-6 pt-4 border-t border-slate-800 text-[11px] font-mono text-slate-500">
-              Robotic inspection technology exists; the challenge lies in accessibility and timing.
-            </div>
-          </div>
-
-          {/* Right: The Identified Gap AQUA-SHIELD Solves */}
-          <div className="p-6 sm:p-8 rounded-2xl bg-gradient-to-b from-cyan-950/50 to-slate-900/80 border-2 border-cyan-400 shadow-[0_0_30px_rgba(0,240,255,0.2)] flex flex-col justify-between">
-            <div>
-              <div className="flex items-center space-x-2 text-xs font-mono text-cyan-300 uppercase mb-3">
-                <Lightbulb className="w-4 h-4 text-cyan-400" />
-                <span>IDENTIFIED RESEARCH GAP</span>
-              </div>
-
-              <h3 className="text-xl font-bold text-white font-heading mb-4">
-                The Critical Human-Safety Gap
-              </h3>
-
-              <div className="p-4 rounded-xl bg-cyan-950/60 border border-cyan-500/40 text-sm text-cyan-200 font-semibold leading-relaxed mb-4">
-                “Identified Gap: Existing systems mainly inspect the drain; AQUA-SHIELD goes one step further by locating the blockage, assessing operating conditions and providing fail-safe recovery before human intervention.”
-              </div>
-
-              <ul className="space-y-2 text-xs text-slate-300">
+              <ul className="space-y-3 text-sm text-slate-400">
                 <li className="flex items-start">
-                  <CheckCircle2 className="w-3.5 h-3.5 mr-2 text-cyan-400 flex-shrink-0 mt-0.5" />
-                  <strong>First-Responder Timing:</strong> Deployed in emergency flash flood conditions when manual scouting is too dangerous.
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mr-2.5 mt-2 shrink-0"></span>
+                  <span>Heavy 15–40 kg tractor chassis requiring truck cranes</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle2 className="w-3.5 h-3.5 mr-2 text-cyan-400 flex-shrink-0 mt-0.5" />
-                  <strong>Multi-Transducer Fusion:</strong> Replaces subjective video inspection with hard sensor metrics (flow velocity + current draw + inclination).
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mr-2.5 mt-2 shrink-0"></span>
+                  <span>Costs ₹5,00,000 to ₹25,00,000+ per unit</span>
                 </li>
                 <li className="flex items-start">
-                  <CheckCircle2 className="w-3.5 h-3.5 mr-2 text-cyan-400 flex-shrink-0 mt-0.5" />
-                  <strong>Zero-Risk Recovery:</strong> Active servo anchor prevents equipment loss during sudden storm drain inundation.
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mr-2.5 mt-2 shrink-0"></span>
+                  <span>Primarily visual cameras with no hydrodynamic flow sensing</span>
                 </li>
               </ul>
             </div>
 
-            <div className="mt-6 pt-4 border-t border-cyan-500/30 text-[11px] font-mono text-cyan-300">
-              Human workers enter only after preliminary reconnaissance is certified complete.
+            <div className="mt-8 pt-4 border-t border-slate-800 text-xs font-mono text-slate-500">
+              Built for routine maintenance, not emergency disaster response.
+            </div>
+          </div>
+
+          {/* Card 2: The Critical Limitation */}
+          <div className="p-8 rounded-2xl bg-gradient-to-b from-[#1c0e12] to-[#0f0709] border border-rose-500/30 flex flex-col justify-between shadow-lg">
+            <div>
+              <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-500/40 text-rose-400 text-xs font-mono mb-4">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                <span>UNMET CHALLENGE</span>
+              </div>
+
+              <h3 className="text-2xl font-bold text-white mb-3 font-heading">
+                The Flash Flood Blindspot
+              </h3>
+
+              <p className="text-base text-rose-200/90 leading-relaxed mb-6">
+                During sudden monsoon deluge, urban stormwater channels choke with debris. Municipalities cannot deploy heavy crawlers due to rapid flooding and risk of equipment loss.
+              </p>
+
+              <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 text-sm italic leading-relaxed">
+                “When drains flood, workers are forced to enter hazardous culverts blindly or wait days while streets remain submerged.”
+              </div>
+            </div>
+
+            <div className="mt-8 pt-4 border-t border-rose-900/40 text-xs font-mono text-rose-400">
+              Result: Extreme human risk and municipal paralysis.
+            </div>
+          </div>
+
+          {/* Card 3: AQUA-SHIELD Gap Solved */}
+          <div className="p-8 rounded-2xl bg-gradient-to-b from-[#081f2a] to-[#051118] border-2 border-cyan-400/60 ring-1 ring-cyan-400/30 flex flex-col justify-between shadow-xl">
+            <div>
+              <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-950 border border-cyan-400 text-cyan-300 text-xs font-mono font-bold mb-4">
+                <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
+                <span>OUR CONTRIBUTION</span>
+              </div>
+
+              <h3 className="text-2xl font-bold text-white mb-3 font-heading">
+                AQUA-SHIELD Solution
+              </h3>
+
+              <p className="text-base text-cyan-100 leading-relaxed mb-6 font-medium">
+                A rapid-deploy, lightweight reconnaissance capsule designed to pinpoint blockages within minutes before any human worker is put in danger.
+              </p>
+
+              <ul className="space-y-3 text-sm text-cyan-100">
+                <li className="flex items-start">
+                  <CheckCircle2 className="w-4 h-4 text-cyan-400 mr-2.5 mt-0.5 shrink-0" />
+                  <span><strong>&lt; 2.5 kg Portable:</strong> 2-person team can launch within 60 seconds</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle2 className="w-4 h-4 text-cyan-400 mr-2.5 mt-0.5 shrink-0" />
+                  <span><strong>Sensor Fusion:</strong> Current + Flow + IMU quantify hydraulic choke</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle2 className="w-4 h-4 text-cyan-400 mr-2.5 mt-0.5 shrink-0" />
+                  <span><strong>Guaranteed Return:</strong> Active servo anchor + 30m mechanical tether</span>
+                </li>
+                <li className="flex items-start">
+                  <CheckCircle2 className="w-4 h-4 text-cyan-400 mr-2.5 mt-0.5 shrink-0" />
+                  <span><strong>Affordable:</strong> ₹8,250 prototype allows wide municipal adoption</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="mt-8 pt-4 border-t border-cyan-800/60 text-xs font-mono text-cyan-300 font-bold">
+              Worker safety verified before physical entry.
             </div>
           </div>
 

@@ -37,7 +37,7 @@ export const teamMembers = [
   },
   {
     name: "Tanvi Kulkarni",
-    role: "Communication & Live Dashboard",
+    role: "Communication & Simulator",
     discipline: "Computer Science & UI/UX",
     responsibilities: [
       "Mission control telemetry interface & real-time telemetry graphs",

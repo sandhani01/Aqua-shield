@@ -1,62 +1,39 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
-  ShieldCheck, 
-  RotateCcw, 
-  Anchor, 
-  AlertTriangle, 
-  ArrowDown, 
+  Waves, 
   ZapOff, 
   BatteryLow, 
   Compass, 
-  RadioTower, 
   UserX, 
-  CheckCircle2, 
-  Waves 
+  RadioTower
 } from 'lucide-react';
 
 export default function FailSafeSection() {
-  const [selectedTrigger, setSelectedTrigger] = useState(0);
-
   const loopSteps = [
     {
-      id: "normal",
       stepNum: "01",
-      title: "NORMAL",
-      badge: "STEADY STATE",
-      desc: "Capsule advances forward under nominal motor current and laminar stormwater runoff. Odometry logs distance.",
-      color: "border-emerald-500 bg-emerald-950/40 text-emerald-400"
+      title: "Normal Transit",
+      desc: "Capsule moves through the culvert logging odometry and streaming telemetry.",
     },
     {
-      id: "abnormal",
       stepNum: "02",
-      title: "ABNORMAL CONDITION",
-      badge: "FAULT DETECTED",
-      desc: "Anomalous threshold breached: motor overload, sudden flash surge, tilt anomaly, or low battery voltage.",
-      color: "border-amber-500 bg-amber-950/40 text-amber-400"
+      title: "Fault Detected",
+      desc: "Sensor anomaly threshold reached: motor spike, flood surge, or tilt anomaly.",
     },
     {
-      id: "stop",
       stepNum: "03",
-      title: "STOP",
-      badge: "IMMEDIATE CUTOFF",
-      desc: "ESP32 cuts thruster PWM to 0% within 20 milliseconds to prevent propeller cavitation or motor burnout.",
-      color: "border-red-500 bg-red-950/40 text-red-400"
+      title: "Instant Stop",
+      desc: "ESP32 cuts thruster power within 20ms to prevent cavitation or motor burnout.",
     },
     {
-      id: "anchor",
       stepNum: "04",
-      title: "ANCHOR",
-      badge: "HYDRAULIC LOCK",
-      desc: "Metal-gear waterproof servo releases folding titanium anchor flukes, locking capsule position against the culvert bed.",
-      color: "border-cyan-500 bg-cyan-950/40 text-cyan-400"
+      title: "Deploy Anchor",
+      desc: "Waterproof servo locks folding anchor flukes against the culvert bed.",
     },
     {
-      id: "controlled-return",
       stepNum: "05",
-      title: "CONTROLLED RETURN",
-      badge: "SAFE RETRIEVAL",
-      desc: "Ground reel winches high-tensile (50kg rated) tether back to manhole. Full sensor logs preserved.",
-      color: "border-blue-500 bg-blue-950/40 text-blue-400"
+      title: "Controlled Return",
+      desc: "Tether line is winched back to the surface entry point with complete logs.",
     }
   ];
 
@@ -64,142 +41,106 @@ export default function FailSafeSection() {
     {
       title: "High Water Flow",
       icon: Waves,
-      threshold: "> 35 L/min Sudden Inundation",
-      response: "Locks position to prevent capsule from being swept uncontrollably downline."
+      threshold: "> 35 L/min Surge",
+      desc: "Prevents capsule from being swept away downline during sudden stormwater runoff."
     },
     {
       title: "Motor Overload",
       icon: ZapOff,
-      threshold: "> 850 mA Silt Entanglement",
-      response: "Shuts off drive H-bridge immediately to prevent motor coil burnout."
+      threshold: "> 850 mA Current",
+      desc: "Immediately halts drive H-bridge to avoid motor overheating or coil damage."
     },
     {
       title: "Low Battery",
       icon: BatteryLow,
-      threshold: "< 15% Battery Reserve",
-      response: "Autonomous auto-return command issued before MCU loses power."
+      threshold: "< 15% Capacity",
+      desc: "Issues automated return command before onboard microcontroller loses power."
     },
     {
-      title: "Abnormal Movement",
+      title: "Abnormal Tilt",
       icon: Compass,
-      threshold: "> 15° Pitch Tilt or Gyro Roll",
-      response: "Halts forward motion to avoid wedging between conduit irregularities."
+      threshold: "> 15° Pitch/Roll",
+      desc: "Halts forward motion to avoid wedging inside irregular conduit cracks."
     },
     {
       title: "Operator Abort",
       icon: UserX,
-      threshold: "Manual GUI Abort Command",
-      response: "Instant emergency brake override triggered from surface control station."
+      threshold: "Manual GUI Command",
+      desc: "Emergency brake override triggered instantly from the surface mission control."
     },
     {
-      title: "Communication Problem",
+      title: "Communication Timeout",
       icon: RadioTower,
-      threshold: "> 3000ms Heartbeat Timeout",
-      response: "Failsafe timer engages anchor and prepares tether reel recovery."
+      threshold: "> 3000ms Heartbeat",
+      desc: "Autonomous failsafe timer engages recovery anchor if signal is interrupted."
     }
   ];
 
   return (
-    <section id="fail-safe" className="relative py-20 md:py-28 bg-[#070c18] border-t border-cyan-950/80">
-      
-      {/* Background Accent */}
-      <div className="absolute top-1/2 right-1/4 w-96 h-96 bg-cyan-500/5 blur-[140px] rounded-full pointer-events-none"></div>
-
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section id="fail-safe" className="py-16 md:py-24 bg-[#090d16] border-t border-slate-800">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
         
         {/* Header */}
-        <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 text-xs font-mono uppercase mb-4">
-            <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-            <span>SECTION 07 // FAIL-SAFE RECOVERY LOOP</span>
-          </div>
-
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-white font-heading">
-            Designed to <span className="text-cyan-400">Come Back</span>
+        <div className="text-center max-w-2xl mx-auto mb-12">
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-3">
+            Fail-Safe Recovery Loop
           </h2>
-
-          <p className="mt-4 text-base sm:text-lg text-slate-300 leading-relaxed">
-            In hazardous flooded environments, getting stuck is catastrophic. AQUA-SHIELD treats return capability not as an afterthought, but as the foundational engineering constraint.
+          <p className="text-sm text-slate-400 leading-relaxed">
+            In hazardous flooded drains, getting stuck is unacceptable. AQUA-SHIELD treats return capability as a foundational engineering constraint.
           </p>
         </div>
 
-        {/* Five-Stage Fail-Safe Loop: NORMAL -> ABNORMAL -> STOP -> ANCHOR -> RETURN */}
-        <div className="mb-14">
-          <div className="text-center mb-6">
-            <span className="text-xs font-mono uppercase tracking-widest text-slate-400">
-              Autonomous Failsafe Sequence (Hardware State Transition)
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 relative">
-            {loopSteps.map((s, idx) => (
-              <div key={s.id} className="relative flex flex-col">
-                <div className={`p-4 rounded-xl border ${s.color} h-full flex flex-col justify-between backdrop-blur-sm shadow-lg hover:scale-105 transition-transform`}>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-mono font-bold">{s.stepNum}</span>
-                      <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-black/40 border border-white/10 uppercase">
-                        {s.badge}
-                      </span>
-                    </div>
-                    <h3 className="text-sm font-bold text-white font-heading mb-1.5">
-                      {s.title}
-                    </h3>
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      {s.desc}
-                    </p>
-                  </div>
-                </div>
-
-                {idx < loopSteps.length - 1 && (
-                  <div className="my-1 lg:my-0 lg:absolute lg:top-1/2 lg:-right-2.5 lg:-translate-y-1/2 z-20 flex justify-center text-slate-500">
-                    <ArrowDown className="w-3.5 h-3.5 lg:-rotate-90 text-cyan-400" />
-                  </div>
-                )}
+        {/* 5-Step Sequence */}
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-12">
+          {loopSteps.map((step) => (
+            <div 
+              key={step.stepNum}
+              className="p-4 rounded-xl bg-slate-900/50 border border-slate-800 flex flex-col justify-between text-xs"
+            >
+              <div>
+                <span className="font-mono text-cyan-400 font-bold text-sm block mb-1">
+                  {step.stepNum}
+                </span>
+                <h3 className="font-semibold text-white mb-1.5 text-sm">
+                  {step.title}
+                </h3>
+                <p className="text-slate-400 leading-relaxed text-[11px]">
+                  {step.desc}
+                </p>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
 
-        {/* Emphasized Quote Banner */}
-        <div className="p-6 sm:p-8 rounded-2xl bg-gradient-to-r from-[#0d172e] via-[#091122] to-[#0d172e] border border-cyan-500/40 text-center my-10 shadow-[0_0_30px_rgba(0,240,255,0.15)]">
-          <blockquote className="text-2xl sm:text-3xl font-black text-white font-heading tracking-tight italic">
-            “Recoverability is part of the design.”
-          </blockquote>
-          <p className="mt-2 text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
-            Traditional crawlers often become expensive underground liabilities when wheels get stuck. AQUA-SHIELD’s passive tether tension + active servo anchor ensures guaranteed physical retrieval under any circumstance.
-          </p>
-        </div>
-
-        {/* Six Possible Trigger Conditions Grid */}
-        <div>
+        {/* 6 Trigger Conditions */}
+        <div className="mt-8">
           <div className="text-center mb-6">
-            <span className="text-xs font-mono uppercase tracking-widest text-slate-400">
-              6 Deterministic Failsafe Triggers Monitored Concurrently
-            </span>
+            <h3 className="text-sm font-semibold text-slate-300">
+              6 Deterministic Failsafe Triggers
+            </h3>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {triggers.map((t, idx) => {
               const Icon = t.icon;
               return (
                 <div
                   key={idx}
-                  className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-cyan-500/40 transition-colors"
+                  className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/80 text-xs"
                 >
                   <div className="flex items-start space-x-3">
-                    <div className="p-2 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 flex-shrink-0">
+                    <div className="p-2 rounded-lg bg-slate-800 text-cyan-400 flex-shrink-0">
                       <Icon className="w-4 h-4" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-bold text-white font-heading">
+                      <div className="font-semibold text-white">
                         {t.title}
-                      </h4>
-                      <div className="text-[11px] font-mono text-amber-400 mt-0.5">
-                        TRIGGER: {t.threshold}
                       </div>
-                      <p className="mt-1 text-xs text-slate-300 leading-snug">
-                        {t.response}
+                      <div className="text-[11px] font-mono text-cyan-400/90 mt-0.5 mb-1">
+                        Trigger: {t.threshold}
+                      </div>
+                      <p className="text-slate-400 text-[11px] leading-relaxed">
+                        {t.desc}
                       </p>
                     </div>
                   </div>

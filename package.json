@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "bridge": "node bridge/server.js",
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview"
@@ -13,7 +14,10 @@
     "lucide-react": "^1.41.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "recharts": "^3.10.1"
+    "react-router-dom": "^7.18.3",
+    "recharts": "^3.10.1",
+    "serialport": "^13.0.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

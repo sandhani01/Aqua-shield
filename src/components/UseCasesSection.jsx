@@ -1,118 +1,130 @@
-import React from 'react';
-import { useCases } from '../data/useCases';
+import React, { useState } from 'react';
 import { 
   CloudRain, 
-  ShieldAlert, 
-  Truck, 
+  Waves, 
+  Navigation, 
   Factory, 
-  Building2, 
+  GraduationCap, 
   HardHat, 
-  ArrowRight, 
-  CheckCircle2, 
-  Layers 
+  MapPin, 
+  ChevronDown, 
+  ChevronUp 
 } from 'lucide-react';
 
-const iconMap = {
-  CloudRain,
-  ShieldAlert,
-  Truck,
-  Factory,
-  Building2,
-  HardHat
-};
-
 export default function UseCasesSection() {
-  return (
-    <section id="use-cases" className="relative py-20 md:py-28 bg-[#050811] border-t border-cyan-950/80">
-      
-      {/* Background Tech Grid */}
-      <div className="absolute inset-0 bg-grid-pattern opacity-20 pointer-events-none"></div>
+  const [expandedCard, setExpandedCard] = useState(null);
 
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+  const applications = [
+    {
+      id: "urban-drains",
+      emoji: "🌧",
+      title: "URBAN DRAINS",
+      oneLiner: "Detect monsoon blockages before workers enter.",
+      icon: CloudRain,
+      details: "Pinpoints trash accumulation at underground junction boxes, allowing municipal suction trucks to position directly above without digging entire avenues."
+    },
+    {
+      id: "post-flood",
+      emoji: "🌊",
+      title: "POST-FLOOD INSPECTION",
+      oneLiner: "Inspect sediment, debris and structural conditions.",
+      icon: Waves,
+      details: "Surveys post-cyclone silt deposition and conduit joint fractures in submerged channels to evaluate flood discharge readiness."
+    },
+    {
+      id: "highway-culverts",
+      emoji: "🛣",
+      title: "HIGHWAY CULVERTS",
+      oneLiner: "Inspect narrow water passages inaccessible to humans.",
+      icon: Navigation,
+      details: "Enters sub-meter culvert conduits passing beneath multi-lane national highways to inspect silt choke dams without closing road lanes."
+    },
+    {
+      id: "industrial-drainage",
+      emoji: "🏭",
+      title: "INDUSTRIAL DRAINAGE",
+      oneLiner: "Reduce exposure to hazardous effluent environments.",
+      icon: Factory,
+      details: "Evaluates chemical sludge and industrial discharge runoffs, protecting workers from acute hazardous chemical and fume exposure."
+    },
+    {
+      id: "campus-drainage",
+      emoji: "🏫",
+      title: "CAMPUS DRAINAGE",
+      oneLiner: "Affordable preventive inspection for institutions.",
+      icon: GraduationCap,
+      details: "Enables universities, hospitals, and tech parks to conduct periodic preventive stormwater channel scans for under ₹10,000 per unit."
+    },
+    {
+      id: "construction-runoff",
+      emoji: "🏗",
+      title: "CONSTRUCTION RUNOFF",
+      oneLiner: "Detect silt and debris blockages before they harden.",
+      icon: HardHat,
+      details: "Detects cementitious runoff, aggregate wash, and timber obstructions before they cure into permanent conduit chokes."
+    }
+  ];
+
+  return (
+    <section id="applications" className="py-20 md:py-28 bg-[#050811] border-t border-slate-800">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
-        {/* Header */}
+        {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 text-xs font-mono uppercase mb-4">
-            <Layers className="w-3.5 h-3.5 text-cyan-400" />
-            <span>SECTION 10 // REAL-WORLD DEPLOYMENT</span>
+          <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 text-xs font-mono uppercase tracking-wider mb-4">
+            <MapPin className="w-4 h-4 text-cyan-400" />
+            <span>DEPLOYMENT SCENARIOS</span>
           </div>
 
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-white font-heading">
-            Field Applications & <span className="text-cyan-400">Deployment Scenarios</span>
+          <h2 className="text-4xl sm:text-5xl font-black tracking-tight text-white mb-4 font-heading">
+            FIELD APPLICATIONS
           </h2>
 
-          <p className="mt-4 text-base sm:text-lg text-slate-300 leading-relaxed">
-            From urban monsoon storm channels to low-clearance highway culverts, AQUA-SHIELD delivers rapid unmanned reconnaissance across diverse drainage environments.
+          <p className="text-lg sm:text-xl text-slate-300 font-normal">
+            A versatile inspection platform engineered for critical municipal and infrastructure channels.
           </p>
         </div>
 
-        {/* 6 Use Case Cards Grid */}
+        {/* Clean 2x3 Visual Grid (Exact Requirement: ICON, TITLE, ONE-LINE USE CASE) */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {useCases.map((uc) => {
-            const Icon = iconMap[uc.icon] || CloudRain;
+          {applications.map((app) => {
+            const isExpanded = expandedCard === app.id;
             return (
-              <div
-                key={uc.id}
-                className="p-6 rounded-2xl bg-slate-900/40 border border-slate-800 hover:border-cyan-500/40 hover:bg-slate-900/70 transition-all duration-300 flex flex-col justify-between group shadow-lg"
+              <div 
+                key={app.id}
+                className="p-7 rounded-2xl bg-gradient-to-b from-[#091122] to-[#050a16] border border-slate-800 hover:border-cyan-500/40 transition-all flex flex-col justify-between shadow-lg group"
               >
                 <div>
-                  {/* Top Badge & Icon */}
                   <div className="flex items-center justify-between mb-4">
-                    <div className="p-3 rounded-xl bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 group-hover:scale-110 transition-transform">
-                      <Icon className="w-6 h-6" />
-                    </div>
-                    <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-                      CASE 0{uc.id}
+                    <span className="text-3xl p-2 rounded-xl bg-slate-900 border border-slate-800">
+                      {app.emoji}
                     </span>
+                    <span className="text-xs font-mono text-slate-500">MUNICIPAL READY</span>
                   </div>
 
-                  {/* Title & Subtitle */}
-                  <h3 className="text-lg font-bold text-white font-heading mb-1 group-hover:text-cyan-300 transition-colors">
-                    {uc.title}
+                  <h3 className="text-xl font-extrabold text-white mb-2 font-heading tracking-wide">
+                    {app.title}
                   </h3>
-                  <div className="text-xs font-mono text-cyan-400/80 mb-4">
-                    {uc.subtitle}
-                  </div>
 
-                  {/* Problem -> Action -> Benefit Flow */}
-                  <div className="space-y-3 text-xs">
-                    
-                    {/* Problem */}
-                    <div className="p-2.5 rounded-lg bg-red-950/20 border border-red-900/40">
-                      <div className="text-[10px] font-mono text-red-400 font-bold uppercase mb-0.5">
-                        PROBLEM
-                      </div>
-                      <p className="text-slate-300 leading-snug">
-                        {uc.problem}
-                      </p>
-                    </div>
-
-                    {/* Action */}
-                    <div className="p-2.5 rounded-lg bg-cyan-950/20 border border-cyan-900/40">
-                      <div className="text-[10px] font-mono text-cyan-400 font-bold uppercase mb-0.5">
-                        AQUA-SHIELD ACTION
-                      </div>
-                      <p className="text-slate-300 leading-snug">
-                        {uc.action}
-                      </p>
-                    </div>
-
-                    {/* Benefit */}
-                    <div className="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-900/40">
-                      <div className="text-[10px] font-mono text-emerald-400 font-bold uppercase mb-0.5">
-                        TANGIBLE BENEFIT
-                      </div>
-                      <p className="text-slate-200 leading-snug font-medium">
-                        {uc.benefit}
-                      </p>
-                    </div>
-
-                  </div>
+                  <p className="text-base text-slate-300 leading-relaxed font-normal mb-4">
+                    {app.oneLiner}
+                  </p>
                 </div>
 
-                <div className="mt-5 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono text-slate-500">
-                  <span>UNMANNED RECONNAISSANCE</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-cyan-400 group-hover:translate-x-1 transition-transform" />
+                <div>
+                  {isExpanded && (
+                    <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-400 mb-3 leading-relaxed">
+                      {app.details}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => setExpandedCard(isExpanded ? null : app.id)}
+                    className="inline-flex items-center text-xs font-mono text-cyan-400 hover:text-cyan-300 font-bold transition-colors"
+                  >
+                    <span>{isExpanded ? "Hide details" : "View details"}</span>
+                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5 ml-1" /> : <ChevronDown className="w-3.5 h-3.5 ml-1" />}
+                  </button>
                 </div>
               </div>
             );
