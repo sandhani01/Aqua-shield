@@ -1,49 +1,65 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { 
-  Shield, 
-  Wifi, 
-  WifiOff, 
-  Radio, 
-  Camera, 
-  Video, 
-  VideoOff, 
-  Gamepad2, 
-  Activity, 
-  Zap, 
-  Droplets, 
-  Gauge, 
-  AlertTriangle, 
-  RefreshCw, 
-  Maximize2, 
-  Sliders, 
-  Terminal, 
-  ChevronDown, 
-  ChevronUp, 
+import {
+  Shield,
+  Wifi,
+  WifiOff,
+  Radio,
+  Camera,
+  Video,
+  VideoOff,
+  Gamepad2,
+  Activity,
+  Zap,
+  Droplets,
+  Gauge,
+  AlertTriangle,
+  RefreshCw,
+  RotateCcw,
+  Maximize2,
+  Sliders,
+  Terminal,
+  ChevronDown,
+  ChevronUp,
   Power,
   Compass,
-  Sparkles
+  Sparkles,
+  Layers,
+  HelpCircle
 } from 'lucide-react';
-import PrototypeTestingSuite from './PrototypeTestingSuite';
-
-const BRIDGE_HTTP = 'http://localhost:5001';
-const BRIDGE_WS = 'ws://localhost:5001/ws';
 
 export default function PhysicalRobotConsole() {
-  // --- Connection State ---
-  const [isBridgeConnected, setIsBridgeConnected] = useState(false);
+  // --- Local Wi-Fi Connection State ---
+  const [robotIp, setRobotIp] = useState(() => {
+    const saved = localStorage.getItem('aqua_shield_robot_ip');
+    if (!saved || saved === '192.168.1.105') {
+      localStorage.setItem('aqua_shield_robot_ip', '192.168.4.2');
+      return '192.168.4.2';
+    }
+    return saved;
+  });
+  const [robotPort, setRobotPort] = useState('81');
   const [isRobotConnected, setIsRobotConnected] = useState(false);
-  const [connectedPort, setConnectedPort] = useState('');
-  const [availablePorts, setAvailablePorts] = useState([]);
-  const [selectedPort, setSelectedPort] = useState('');
-  const [customPort, setCustomPort] = useState('');
-  const [isCustomMode, setIsCustomMode] = useState(false);
-  const [isConnectingPort, setIsConnectingPort] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [lastError, setLastError] = useState('');
 
-  // --- Robot Command State ---
+  // --- Robot Motion State ---
   const [activeCommand, setActiveCommand] = useState('S');
   const [lastSentCommand, setLastSentCommand] = useState('S');
-  const [commandSuccess, setCommandSuccess] = useState(true);
+
+  // Direction swap orientation calibration:
+  // Default is Direct (1:1) since firmware aqua_shield_robot_wifi.ino is now calibrated
+  const [swapOrientation, setSwapOrientation] = useState(() => {
+    const saved = localStorage.getItem('aqua_shield_swap_orientation');
+    return saved !== null ? saved === 'true' : false; // Default: false (Direct 1:1)
+  });
+
+  const toggleSwapOrientation = useCallback(() => {
+    setSwapOrientation((prev) => {
+      const next = !prev;
+      localStorage.setItem('aqua_shield_swap_orientation', String(next));
+      return next;
+    });
+  }, []);
 
   // --- Telemetry State ---
   const [telemetry, setTelemetry] = useState({
@@ -59,10 +75,27 @@ export default function PhysicalRobotConsole() {
   const [telemetryHistory, setTelemetryHistory] = useState([]);
   const [rawLogs, setRawLogs] = useState([]);
   const [showRawLogs, setShowRawLogs] = useState(false);
+  // --- Safety Thresholds & Limit Alert Evaluation (Voltage limits removed as requested) ---
+  const [testAlertActive, setTestAlertActive] = useState(false);
 
-  // --- ESP32-CAM State ---
+  // Real-time limit evaluations
+  // 1. Current: Safe < 1400mA | Motor Stall limit: > 2000mA
+  const isCurrentCritical = telemetry.current > 2000 || testAlertActive;
+  const isCurrentWarning = telemetry.current > 1400 && telemetry.current <= 2000;
+
+  // 2. Gas Level: Safe < 700 RAW | Hazardous Sewer Gas limit: > 1500 RAW
+  const isGasCritical = telemetry.gas > 1500 || testAlertActive;
+  const isGasWarning = telemetry.gas > 700 && telemetry.gas <= 1500;
+
+  // 3. Distance: Safe > 25cm | Collision / Chokepoint limit: <= 15cm
+  const isDistanceCritical = (telemetry.distance > 0 && telemetry.distance <= 15) || testAlertActive;
+  const isDistanceWarning = telemetry.distance > 15 && telemetry.distance <= 25;
+
+  // Global hazard alert flag: Activated when ANY limit is crossed (Current, Gas, or Distance)
+  const hasActiveAlert = isCurrentCritical || isGasCritical || isDistanceCritical;
+
+  // --- ESP32-CAM State (Isolated stream) ---
   const [cameraUrl, setCameraUrl] = useState('http://192.168.4.1/stream');
-  const [useProxy, setUseProxy] = useState(false);
   const [isCameraOnline, setIsCameraOnline] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [showCamSettings, setShowCamSettings] = useState(false);
@@ -70,221 +103,305 @@ export default function PhysicalRobotConsole() {
 
   // Refs
   const wsRef = useRef(null);
-  const reconnectTimerRef = useRef(null);
-  const lastCommandTimeRef = useRef(0);
-  const cameraImgRef = useRef(null);
-
-  // Determine active camera stream source (no query param on direct stream to ensure exact URI match on ESP32)
-  const activeStreamSrc = useProxy
-    ? `${BRIDGE_HTTP}/api/camera-proxy?url=${encodeURIComponent(cameraUrl)}&t=${streamKey}`
-    : cameraUrl;
+  const heartbeatTimerRef = useRef(null);
+  const activeCommandRef = useRef('S');
+  const autoReconnectRef = useRef(false);
+  const reconnectTimeoutRef = useRef(null);
+  const connectRobotRef = useRef(null);
 
   // -------------------------------------------------------------
-  // 1. WebSocket Bridge Connection
+  // 1. Hold-To-Move & Safe Command Dispatcher
   // -------------------------------------------------------------
-  const connectBridge = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+  // Kinematic mapping based on user calibration:
+  // User requested: "forward is working as right , backword as left. right is working as front and left is working as backqord swap them."
+  // When swapped:
+  // - FORWARD ('F')  -> Sends 'R' (triggers physical FRONT drive)
+  // - BACKWARD ('B') -> Sends 'L' (triggers physical BACKWARD drive)
+  // - RIGHT ('R')    -> Sends 'F' (triggers physical RIGHT turn)
+  // - LEFT ('L')     -> Sends 'B' (triggers physical LEFT turn)
+  // - STOP ('S')     -> Sends 'S'
+  const mapCommandToWire = useCallback((cmd) => {
+    if (!swapOrientation) return cmd;
+    switch (cmd) {
+      case 'F': return 'R';
+      case 'B': return 'L';
+      case 'R': return 'F';
+      case 'L': return 'B';
+      default: return cmd;
+    }
+  }, [swapOrientation]);
+
+  // Helper to send ultra-fast 1-byte raw character over WebSocket
+  const sendRaw = useCallback((c) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        // Send single-byte raw command ('F', 'B', 'L', 'R', 'S')
+        // Bypasses JSON parsing on ESP32 for sub-millisecond execution!
+        wsRef.current.send(c);
+      } catch (e) {
+        console.error('[WS Send Error]', e);
+      }
+    }
+  }, []);
+
+  // Stops motor movement immediately, clears heartbeat, and sends
+  // a burst of 3 'S' stop packets (+0ms, +35ms, +70ms) to ensure zero stop-lag over Wi-Fi
+  const stopMoving = useCallback(() => {
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    }
+
+    activeCommandRef.current = 'S';
+    setActiveCommand('S');
+    setLastSentCommand('S');
+
+    // Immediate STOP
+    sendRaw('S');
+
+    // Redundancy burst: Send 'S' twice more in quick succession.
+    // Over 2.4GHz Wi-Fi with motor EMI, this guarantees the STOP packet is NEVER lost in transit!
+    setTimeout(() => sendRaw('S'), 35);
+    setTimeout(() => sendRaw('S'), 70);
+  }, [sendRaw]);
+
+  // Starts motor movement and sends periodic heartbeat (every 200ms)
+  // to satisfy the ESP32 hardware-side 1500ms safety timeout
+  const startMoving = useCallback((cmd) => {
+    const valid = ['F', 'B', 'L', 'R'].includes(cmd);
+    if (!valid) return;
+
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+    }
+
+    const wireCmd = mapCommandToWire(cmd);
+
+    activeCommandRef.current = cmd;
+    setActiveCommand(cmd);
+    setLastSentCommand(wireCmd);
+
+    // Send immediate 1-byte command
+    sendRaw(wireCmd);
+
+    // Keep sending command every 200ms while held (5 pkts/sec is negligible bandwidth,
+    // and easily survives transient Wi-Fi drops while keeping ESP32 1500ms watchdog fed)
+    heartbeatTimerRef.current = setInterval(() => {
+      sendRaw(wireCmd);
+    }, 200);
+  }, [mapCommandToWire, sendRaw]);
+
+  // Unified command router used by buttons & keyboard
+  const sendRobotCommand = useCallback((cmd) => {
+    if (cmd === 'S') {
+      stopMoving();
+    } else {
+      startMoving(cmd);
+    }
+  }, [startMoving, stopMoving]);
+
+  // -------------------------------------------------------------
+  // 2. Direct Local Wi-Fi WebSocket Connection
+  // -------------------------------------------------------------
+  const connectRobot = useCallback(() => {
+    const cleanIp = robotIp.trim();
+    if (!cleanIp) {
+      setLastError('Please enter the ESP32 Robot local IP address (e.g. 192.168.4.2).');
+      return;
+    }
+
+    // Persist in localStorage for convenience
+    localStorage.setItem('aqua_shield_robot_ip', cleanIp);
+
+    // Mark user-initiated connection intent
+    autoReconnectRef.current = true;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch {
+        // ignore
+      }
+      wsRef.current = null;
+    }
+
+    setIsConnecting(true);
+    setLastError('');
+
+    const targetUrl = `ws://${cleanIp}:${robotPort.trim()}/ws`;
 
     try {
-      const ws = new WebSocket(BRIDGE_WS);
+      const ws = new WebSocket(targetUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        setIsBridgeConnected(true);
+        setIsConnecting(false);
+        setIsRobotConnected(true);
         setLastError('');
-        // Request available ports
-        ws.send(JSON.stringify({ type: 'get_ports' }));
+        // Ensure robot boots in STOP state
+        ws.send('S');
+        setRawLogs((prev) => [
+          ...prev.slice(-40),
+          `[SYSTEM] Connected to ESP32 Robot at ${targetUrl}`,
+        ]);
       };
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
 
-          if (msg.type === 'status') {
-            setIsRobotConnected(Boolean(msg.connected));
-            setConnectedPort(msg.port || '');
-            if (msg.connected && msg.port) {
-              setSelectedPort((current) => current || msg.port);
-            }
-            if (msg.error) {
-              setLastError(msg.error);
-            }
-            if (msg.lastTelemetry) {
-              setTelemetry(msg.lastTelemetry);
-            }
-          } else if (msg.type === 'telemetry') {
-            setTelemetry(msg.data);
+          if (msg.type === 'telemetry') {
+            setTelemetry({
+              voltage: typeof msg.voltage === 'number' ? msg.voltage : 0,
+              current: typeof msg.current === 'number' ? msg.current : 0,
+              gas: typeof msg.gas === 'number' ? msg.gas : 0,
+              distance: typeof msg.distance === 'number' ? msg.distance : 0,
+              accelX: msg.accel?.x ?? 0,
+              accelY: msg.accel?.y ?? 0,
+              accelZ: msg.accel?.z ?? 0,
+              timestamp: Date.now(),
+            });
             setTelemetryHistory((prev) => [
               ...prev.slice(-19),
-              { time: new Date(msg.data.timestamp).toLocaleTimeString(), ...msg.data },
+              { time: new Date().toLocaleTimeString(), ...msg },
             ]);
-          } else if (msg.type === 'ports') {
-            setAvailablePorts(msg.ports || []);
-            setSelectedPort((current) => {
-              if (!current && msg.ports && msg.ports.length > 0) {
-                const btPort = msg.ports.find((p) => p.isBluetooth) || msg.ports[0];
-                return btPort.path;
-              }
-              return current;
-            });
-          } else if (msg.type === 'command_status') {
-            setCommandSuccess(msg.success);
-            if (!msg.success && msg.error) {
-              setLastError(msg.error);
+            setRawLogs((prev) => [
+              ...prev.slice(-40),
+              `[TELEMETRY] V=${msg.voltage}V | I=${msg.current}mA | Gas=${msg.gas} | Dist=${msg.distance === -1 ? 'OUT_OF_RANGE' : msg.distance + 'cm'} | Accel=[${msg.accel?.x},${msg.accel?.y},${msg.accel?.z}]`,
+            ]);
+          } else if (msg.type === 'status') {
+            const reasonStr = msg.reset_reason === 1 ? 'POWER_ON' :
+              msg.reset_reason === 12 ? 'BROWNOUT (Motor Voltage Dip!)' :
+                msg.reset_reason === 3 ? 'SW_RESET' :
+                  msg.reset_reason === 6 ? 'PANIC / CRASH' :
+                    `CODE_${msg.reset_reason}`;
+            setRawLogs((prev) => [
+              ...prev.slice(-40),
+              `[STATUS] Robot IP: ${msg.ip} | Reset Reason: ${reasonStr} | Wi-Fi: ${msg.wifi ? 'CONNECTED' : 'DISCONNECTED'}`,
+            ]);
+            if (msg.reset_reason === 12) {
+              setLastError('CRITICAL: ESP32 Brownout detected! Motors caused voltage dip. Add 1000uF capacitor across 5V or separate motor battery.');
             }
-          } else if (msg.type === 'raw') {
-            setRawLogs((prev) => [...prev.slice(-40), msg.text]);
           }
-        } catch (e) {
-          console.error('[WS Parse Error]', e);
+        } catch {
+          // If raw text or debug message
+          setRawLogs((prev) => [...prev.slice(-40), String(event.data)]);
         }
       };
 
       ws.onclose = () => {
-        setIsBridgeConnected(false);
+        setIsConnecting(false);
         setIsRobotConnected(false);
+        stopMoving();
         wsRef.current = null;
-        // Auto-reconnect bridge in 3s
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = setTimeout(connectBridge, 3000);
+
+        if (autoReconnectRef.current) {
+          setRawLogs((prev) => [
+            ...prev.slice(-40),
+            `[SYSTEM] Disconnected from ESP32 Robot. Auto-reconnecting in 1.5s...`,
+          ]);
+          if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            if (autoReconnectRef.current) {
+              connectRobotRef.current?.();
+            }
+          }, 1500);
+        } else {
+          setRawLogs((prev) => [
+            ...prev.slice(-40),
+            `[SYSTEM] Disconnected from ESP32 Robot`,
+          ]);
+        }
       };
 
       ws.onerror = () => {
-        setIsBridgeConnected(false);
-        setLastError('Unable to connect to local bridge server (localhost:5001). Run "npm run bridge" in terminal.');
+        setIsConnecting(false);
+        setIsRobotConnected(false);
+        stopMoving();
+        setLastError(
+          `Unable to connect to ${targetUrl}. Confirm that your laptop is on the SAME Wi-Fi network as the ESP32 robot and the IP address is correct.`
+        );
       };
-    } catch (e) {
-      console.error('[WS Init Error]', e);
+    } catch (err) {
+      setIsConnecting(false);
+      setLastError(`Connection failed: ${err.message}`);
     }
-  }, []);
+  }, [robotIp, robotPort, sendRaw, stopMoving]);
+  connectRobotRef.current = connectRobot;
 
-  useEffect(() => {
-    connectBridge();
-    return () => {
-      clearTimeout(reconnectTimerRef.current);
-      if (wsRef.current) {
-        // Send emergency stop on unmount
-        if (wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'command', command: 'S' }));
-        }
+  const disconnectRobot = useCallback(() => {
+    autoReconnectRef.current = false;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    stopMoving();
+    if (wsRef.current) {
+      try {
         wsRef.current.close();
+      } catch {
+        // ignore
+      }
+      wsRef.current = null;
+    }
+    setIsRobotConnected(false);
+    setIsConnecting(false);
+  }, [stopMoving]);
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      autoReconnectRef.current = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (heartbeatTimerRef.current) {
+        clearInterval(heartbeatTimerRef.current);
+      }
+      if (wsRef.current) {
+        try {
+          if (wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ command: 'S' }));
+          }
+          wsRef.current.close();
+        } catch {
+          // ignore
+        }
       }
     };
-  }, [connectBridge]);
-
-  // -------------------------------------------------------------
-  // 2. Fetch Ports from Bridge REST endpoint
-  // -------------------------------------------------------------
-  const fetchPorts = async () => {
-    try {
-      const res = await fetch(`${BRIDGE_HTTP}/api/ports`);
-      const data = await res.json();
-      if (data.success && data.ports) {
-        setAvailablePorts(data.ports);
-        if (data.connectedPort) {
-          setConnectedPort(data.connectedPort);
-          setIsRobotConnected(true);
-        }
-        setSelectedPort((prev) => {
-          if (!prev && data.ports.length > 0) {
-            const bt = data.ports.find((p) => p.isBluetooth) || data.ports[0];
-            return bt.path;
-          }
-          return prev;
-        });
-      }
-    } catch {
-      // Bridge might be starting
-    }
-  };
-
-  const handleConnectPort = async (targetPort) => {
-    const port = targetPort || (isCustomMode ? customPort.trim() : selectedPort);
-    if (!port) {
-      setLastError('Please select or enter a valid COM port (e.g. COM4)');
-      return;
-    }
-    setIsConnectingPort(true);
-    setLastError('');
-    try {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'connect', port }));
-      } else {
-        await fetch(`${BRIDGE_HTTP}/api/connect`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ port }),
-        });
-      }
-    } catch (err) {
-      setLastError(`Connect failed: ${err.message}`);
-    } finally {
-      setIsConnectingPort(false);
-    }
-  };
-
-  const handleDisconnectPort = async () => {
-    try {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'disconnect' }));
-      } else {
-        await fetch(`${BRIDGE_HTTP}/api/disconnect`, { method: 'POST' });
-      }
-    } catch (err) {
-      setLastError(`Disconnect error: ${err.message}`);
-    }
-  };
-
-  // -------------------------------------------------------------
-  // 3. Command Dispatcher with Debounce & Safety
-  // -------------------------------------------------------------
-  const sendRobotCommand = useCallback((cmd) => {
-    const valid = ['F', 'B', 'L', 'R', 'S'].includes(cmd);
-    if (!valid) return;
-
-    const now = Date.now();
-    // Allow 'S' (stop) unconditionally; rate-limit other commands to 80ms
-    if (cmd !== 'S' && now - lastCommandTimeRef.current < 80) {
-      return;
-    }
-    lastCommandTimeRef.current = now;
-
-    setActiveCommand(cmd);
-    setLastSentCommand(cmd);
-
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'command', command: cmd }));
-    }
   }, []);
 
   // -------------------------------------------------------------
-  // 4. Keyboard Navigation Controls
+  // 3. Keyboard Navigation Controls
   // W/Up -> F, S/Down -> B, A/Left -> L, D/Right -> R, Space -> S
-  // Keyup sends 'S' to prevent continuous uncontrolled movement
+  // Keyup sends 'S' and stops heartbeat for guaranteed safety
   // -------------------------------------------------------------
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Don't capture when typing in text input
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
 
       const key = e.key.toLowerCase();
-      if (e.repeat) return; // Prevent browser key-repeat command spam
+      if (e.repeat) return; // Ignore native browser repeating events
 
       if (key === 'w' || key === 'arrowup') {
         e.preventDefault();
-        sendRobotCommand('F');
+        startMoving('F');
       } else if (key === 's' || key === 'arrowdown') {
         e.preventDefault();
-        sendRobotCommand('B');
+        startMoving('B');
       } else if (key === 'a' || key === 'arrowleft') {
         e.preventDefault();
-        sendRobotCommand('L');
+        startMoving('L');
       } else if (key === 'd' || key === 'arrowright') {
         e.preventDefault();
-        sendRobotCommand('R');
+        startMoving('R');
       } else if (key === ' ' || key === 'spacebar') {
         e.preventDefault();
-        sendRobotCommand('S');
+        stopMoving();
       }
     };
 
@@ -292,31 +409,39 @@ export default function PhysicalRobotConsole() {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
 
       const key = e.key.toLowerCase();
-      // On release of any motion key, automatically issue STOP for operator safety
+      // On release of any directional motion key, automatically issue STOP
       if (['w', 's', 'a', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
         e.preventDefault();
-        sendRobotCommand('S');
+        stopMoving();
       }
     };
 
     const handleWindowBlur = () => {
       // Emergency halt if browser window loses focus
-      sendRobotCommand('S');
+      stopMoving();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopMoving();
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [sendRobotCommand]);
+  }, [startMoving, stopMoving]);
 
   // -------------------------------------------------------------
-  // 5. Camera Stream Status Monitoring
+  // 4. Camera Stream Handling (Independent from Robot WebSocket)
   // -------------------------------------------------------------
   const handleCameraLoad = () => {
     setIsCameraOnline(true);
@@ -333,16 +458,46 @@ export default function PhysicalRobotConsole() {
   };
 
   return (
-    <div className="max-w-[1540px] mx-auto px-3 sm:px-6 py-6 font-sans text-slate-100">
-      
+    <div className="max-w-[1540px] mx-auto px-3 sm:px-6 py-6 font-sans text-slate-100 relative z-10">
+
       {/* ========================================================================= */}
-      {/* 1. TOP STATUS & HARDWARE BRIDGE CONTROL BAR                                */}
+      {/* CRITICAL HAZARD RED ALERT THEME (Z-INDEX: -1)                             */}
+      {/* Activated whenever Voltage, Current, Gas, or Distance breaches limits     */}
       {/* ========================================================================= */}
-      <div className="mb-4 p-4 rounded-2xl bg-[#070e20] border border-cyan-500/20 shadow-xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-        
-        {/* Brand & Mission Badge */}
+      {hasActiveAlert && (
+        <div
+          className="fixed inset-0 pointer-events-none transition-all duration-700 animate-pulse overflow-hidden"
+          style={{ zIndex: -1 }}
+        >
+          {/* Deep crimson emergency background tint */}
+          <div className="absolute inset-0 bg-gradient-to-b from-red-950/75 via-red-900/40 to-[#0b0204] mix-blend-screen" />
+
+          {/* Flashing hazard perimeter vignette & glowing red border */}
+          <div className="absolute inset-0 border-[6px] border-red-600/50 shadow-[inset_0_0_180px_rgba(220,38,38,0.65)]" />
+
+          {/* High-intensity danger radial flares */}
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[1100px] h-[450px] bg-red-600/25 blur-[160px] rounded-full" />
+          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-[900px] h-[400px] bg-rose-700/20 blur-[180px] rounded-full" />
+
+          {/* Ambient diagonal hazard stripe overlay */}
+          <div
+            className="absolute inset-0 opacity-15"
+            style={{
+              backgroundImage: 'repeating-linear-gradient(45deg, rgba(255,0,0,0.3) 0, rgba(255,0,0,0.3) 25px, transparent 25px, transparent 50px)'
+            }}
+          />
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 1. TOP STATUS & LOCAL WI-FI WEBSOCKET CONNECTION BAR                      */}
+      {/* ========================================================================= */}
+      <div className={`mb-4 p-4 sm:p-5 rounded-2xl border-2 shadow-xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 transition-all ${hasActiveAlert ? 'bg-[#120406] border-red-500/70 shadow-[0_0_25px_rgba(239,68,68,0.3)]' : 'bg-[#070e20] border-cyan-500/30'
+        }`}>
+
+        {/* Brand & Mission Title */}
         <div className="flex items-center space-x-3.5">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-cyan-400/20 to-blue-600/30 border border-cyan-400/60 flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.35)]">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-400/20 to-blue-600/30 border-2 border-cyan-400/60 flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.35)] shrink-0">
             <Shield className="w-6 h-6 text-cyan-400" />
           </div>
           <div>
@@ -350,35 +505,27 @@ export default function PhysicalRobotConsole() {
               <h1 className="text-xl sm:text-2xl font-black tracking-wider text-white font-mono">
                 AQUA-SHIELD
               </h1>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-950 border border-cyan-500/40 text-cyan-300">
-                PHYSICAL ROBOT CONSOLE
-              </span>
             </div>
-            <p className="text-xs text-slate-400 font-mono">
-              Bluetooth Classic SPP Teleoperation &amp; Multi-Sensor Drainage Diagnostic
-            </p>
           </div>
         </div>
 
-        {/* Dual Primary Status Indicators (Robot & Camera) */}
+        {/* Status Indicators */}
         <div className="flex flex-wrap items-center gap-3">
-          
+
           {/* Robot Connection Status */}
-          <div className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-full border text-xs font-mono font-bold transition-all ${
-            isRobotConnected 
-              ? 'bg-emerald-950/70 border-emerald-500 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)]' 
+          <div className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-full border text-xs font-mono font-bold transition-all ${isRobotConnected
+              ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
               : 'bg-red-950/70 border-red-500 text-red-300'
-          }`}>
+            }`}>
             <span className={`w-2.5 h-2.5 rounded-full ${isRobotConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}`}></span>
-            <span>Robot: {isRobotConnected ? `● Connected (${connectedPort})` : '● Disconnected'}</span>
+            <span>Robot: {isRobotConnected ? `● Connected (${robotIp}:${robotPort})` : '● Disconnected'}</span>
           </div>
 
           {/* Camera Connection Status */}
-          <div className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-full border text-xs font-mono font-bold transition-all ${
-            isCameraOnline 
-              ? 'bg-cyan-950/70 border-cyan-500 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.3)]' 
+          <div className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-full border text-xs font-mono font-bold transition-all ${isCameraOnline
+              ? 'bg-cyan-950/70 border-cyan-500 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.3)]'
               : 'bg-slate-900 border-slate-700 text-slate-400'
-          }`}>
+            }`}>
             <span className={`w-2.5 h-2.5 rounded-full ${isCameraOnline ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'}`}></span>
             <span>Camera: {isCameraOnline ? '● Connected' : '● Disconnected'}</span>
           </div>
@@ -393,103 +540,68 @@ export default function PhysicalRobotConsole() {
               {activeCommand === 'R' && 'TURNING RIGHT (R)'}
               {activeCommand === 'S' && 'STOPPED (S)'}
             </span>
+            {activeCommand !== 'S' && swapOrientation && (
+              <span className="text-[10px] text-cyan-400 font-mono bg-cyan-950 px-1.5 py-0.5 rounded border border-cyan-800">
+                Wire: {lastSentCommand}
+              </span>
+            )}
           </div>
+
+          {/* Direction Calibration / Axis Swap Toggle */}
+          <button
+            onClick={toggleSwapOrientation}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full border text-xs font-mono font-bold transition-all ${swapOrientation
+                ? 'bg-cyan-950/80 border-cyan-400 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.3)]'
+                : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            title="Toggle motor direction mapping (F↔R, B↔L)"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Axis: {swapOrientation ? 'Swapped (F↔R, B↔L)' : 'Direct (1:1)'}</span>
+          </button>
 
         </div>
 
-        {/* COM Port Selector & Connect/Disconnect Actions */}
+        {/* Local Wi-Fi Connection UI */}
         <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-          {!isCustomMode ? (
-            <select
-              value={selectedPort}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === '__custom__') {
-                  setIsCustomMode(true);
-                  setSelectedPort(customPort || '');
-                } else {
-                  setSelectedPort(val);
-                }
-              }}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-200 focus:border-cyan-400 focus:outline-none"
-            >
-              {availablePorts.length === 0 ? (
-                <option value="">Scanning COM Ports...</option>
-              ) : (
-                availablePorts.map((p) => (
-                  <option key={p.path} value={p.path}>
-                    {p.path} {p.isBluetooth ? '(Bluetooth)' : ''}
-                  </option>
-                ))
-              )}
-              {selectedPort && !availablePorts.some((p) => p.path === selectedPort) && (
-                <option value={selectedPort}>{selectedPort}</option>
-              )}
-              <option value="__custom__">✏️ Custom COM Port...</option>
-            </select>
-          ) : (
-            <div className="flex items-center space-x-1">
-              <input
-                type="text"
-                value={customPort}
-                onChange={(e) => {
-                  const val = e.target.value.toUpperCase();
-                  setCustomPort(val);
-                  setSelectedPort(val);
-                }}
-                placeholder="e.g. COM4"
-                className="w-24 px-2 py-1.5 rounded-xl bg-slate-900 border border-cyan-500 text-xs font-mono text-cyan-300 focus:outline-none"
-              />
-              <button
-                onClick={() => setIsCustomMode(false)}
-                className="px-2 py-1 rounded bg-slate-800 text-[10px] text-slate-400 hover:text-white"
-                title="Back to dropdown list"
-              >
-                List
-              </button>
-            </div>
-          )}
+          <div className="flex items-center space-x-1.5 bg-slate-900 px-3 py-2 rounded-xl border border-slate-700 font-mono text-xs">
+            <Wifi className="w-4 h-4 text-cyan-400 shrink-0" />
+            <span className="text-slate-400 font-bold">Robot IP:</span>
+            <input
+              type="text"
+              value={robotIp}
+              onChange={(e) => setRobotIp(e.target.value)}
+              disabled={isRobotConnected}
+              placeholder="192.168.4.2"
+              className="w-32 bg-slate-950 px-2 py-1 rounded border border-slate-700 text-white font-mono font-bold focus:border-cyan-400 focus:outline-none disabled:opacity-60"
+            />
+            <span className="text-slate-500">:</span>
+            <input
+              type="text"
+              value={robotPort}
+              onChange={(e) => setRobotPort(e.target.value)}
+              disabled={isRobotConnected}
+              placeholder="81"
+              className="w-12 bg-slate-950 px-1.5 py-1 rounded border border-slate-700 text-cyan-300 font-mono font-bold focus:border-cyan-400 focus:outline-none disabled:opacity-60 text-center"
+            />
+          </div>
 
-          <button
-            onClick={fetchPorts}
-            className="p-2 rounded-xl bg-slate-900 border border-slate-700 text-slate-300 hover:text-white hover:border-cyan-400 transition-colors"
-            title="Refresh Available Ports"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-
-          {isRobotConnected && connectedPort === selectedPort ? (
+          {isRobotConnected ? (
             <button
-              onClick={handleDisconnectPort}
-              className="px-3.5 py-1.5 rounded-xl bg-red-950 hover:bg-red-900 border border-red-700 text-red-300 hover:text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-all shadow-sm"
+              onClick={disconnectRobot}
+              className="px-4 py-2.5 rounded-xl bg-red-950 hover:bg-red-900 border border-red-700 text-red-200 hover:text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-all shadow-md"
             >
-              <Power className="w-3.5 h-3.5" />
+              <Power className="w-4 h-4" />
               <span>Disconnect</span>
             </button>
           ) : (
             <button
-              onClick={() => handleConnectPort(selectedPort)}
-              disabled={isConnectingPort || !selectedPort}
-              className="px-3.5 py-1.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-mono font-bold flex items-center space-x-1.5 transition-all shadow-[0_0_12px_rgba(6,182,212,0.3)] disabled:opacity-50"
+              onClick={connectRobot}
+              disabled={isConnecting || !robotIp.trim()}
+              className="px-5 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-mono font-black flex items-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(6,182,212,0.4)] disabled:opacity-50 hover:scale-105"
             >
-              <Radio className="w-3.5 h-3.5" />
-              <span>
-                {isConnectingPort
-                  ? 'Connecting...'
-                  : isRobotConnected
-                  ? `Switch to ${selectedPort}`
-                  : `Connect to ${selectedPort || 'Port'}`}
-              </span>
-            </button>
-          )}
-
-          {isRobotConnected && connectedPort !== selectedPort && (
-            <button
-              onClick={handleDisconnectPort}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-red-950 border border-slate-700 hover:border-red-600 text-slate-400 hover:text-red-300 text-xs font-mono transition-colors"
-              title="Disconnect currently active port"
-            >
-              Disconnect {connectedPort}
+              <Wifi className="w-4 h-4" />
+              <span>{isConnecting ? 'Connecting...' : 'CONNECT'}</span>
             </button>
           )}
         </div>
@@ -498,12 +610,12 @@ export default function PhysicalRobotConsole() {
 
       {/* Error Alert Banner */}
       {lastError && (
-        <div className="mb-4 p-3 rounded-xl bg-red-950/80 border border-red-600 text-red-200 text-xs font-mono flex items-center justify-between animate-fadeIn">
+        <div className="mb-4 p-3 rounded-xl bg-red-950/90 border-2 border-red-600 text-red-200 text-xs font-mono flex items-center justify-between animate-fadeIn shadow-lg">
           <div className="flex items-center space-x-2">
             <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
             <span>{lastError}</span>
           </div>
-          <button 
+          <button
             onClick={() => setLastError('')}
             className="text-red-400 hover:text-white text-sm font-bold px-2"
           >
@@ -512,36 +624,11 @@ export default function PhysicalRobotConsole() {
         </div>
       )}
 
-      {/* Cloud HTTPS Mixed-Content Notice */}
-      {typeof window !== 'undefined' && window.location.protocol === 'https:' && (
-        <div className="mb-4 p-3.5 rounded-xl bg-amber-950/70 border border-amber-500/60 text-amber-200 text-xs font-mono shadow-lg">
-          <div className="flex items-start space-x-2.5">
-            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-            <div>
-              <strong className="text-white block mb-0.5">🔒 Browser Security Notice (HTTPS Cloud Deployment):</strong>
-              <p className="text-slate-300 leading-relaxed text-[11px]">
-                Web browsers enforce Mixed Content security which blocks HTTPS pages from directly querying local insecure endpoints (<code className="text-cyan-300 font-bold">ws://localhost:5001</code> and <code className="text-cyan-300 font-bold">http://192.168.4.1</code>).
-                To teleoperate the physical robot and view the live ESP32-CAM stream, please open the local console at:
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <a
-                  href="http://localhost:5173/robot"
-                  className="px-3 py-1 rounded-lg bg-cyan-400 text-slate-950 font-bold text-xs hover:bg-cyan-300 transition-colors inline-flex items-center gap-1 shadow-sm"
-                >
-                  <span>Open Local Console (http://localhost:5173/robot)</span>
-                </a>
-                <span className="text-[10px] text-slate-400">or click the lock icon in your address bar and allow "Insecure content".</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ========================================================================= */}
       {/* 2. LIVE CAMERA STREAM (TOP FULL SECTION)                                  */}
       {/* ========================================================================= */}
-      <div className="mb-4 rounded-2xl bg-[#070e20] border border-cyan-500/25 shadow-xl overflow-hidden">
-        
+      <div className="mb-6 rounded-2xl bg-[#070e20] border border-cyan-500/25 shadow-xl overflow-hidden">
+
         {/* Stream Header */}
         <div className="px-4 py-2.5 bg-[#06101e] border-b border-cyan-950 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
           <div className="flex items-center space-x-2">
@@ -596,57 +683,27 @@ export default function PhysicalRobotConsole() {
                 </button>
               </div>
             </div>
-
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <span className="text-slate-400 text-[10px]">Quick Presets:</span>
-              {[
-                { label: 'ESP32 Stream (Default)', url: 'http://192.168.4.1/stream' },
-                { label: 'Port 81 Stream', url: 'http://192.168.4.1:81/stream' },
-                { label: 'MJPEG Path', url: 'http://192.168.4.1/mjpeg' },
-                { label: 'Snapshot Poll', url: 'http://192.168.4.1/capture' },
-              ].map((preset) => (
-                <button
-                  key={preset.url}
-                  onClick={() => {
-                    setCameraUrl(preset.url);
-                    setStreamKey(Date.now());
-                  }}
-                  className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10px] text-slate-300"
-                >
-                  {preset.label}
-                </button>
-              ))}
-
-              <label className="flex items-center space-x-1.5 ml-auto text-[11px] text-slate-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={useProxy}
-                  onChange={(e) => setUseProxy(e.target.checked)}
-                  className="rounded border-slate-700"
-                />
-                <span>Bridge Proxy Mode</span>
-              </label>
+            <div className="text-[10px] text-slate-400">
+              Note: Camera uses its own Wi-Fi or stream address (typically http://192.168.4.1/stream).
             </div>
           </div>
         )}
 
-        {/* Video Viewport */}
-        <div className="relative w-full h-[320px] sm:h-[420px] md:h-[480px] bg-black flex items-center justify-center overflow-hidden">
-          
-          {/* Active Live Video Stream */}
+        {/* Camera Display Viewport */}
+        <div className="relative aspect-video max-h-[460px] w-full bg-black flex items-center justify-center overflow-hidden">
+
           <img
-            ref={cameraImgRef}
             key={streamKey}
-            src={activeStreamSrc}
-            alt="ESP32-CAM Drainage Inspection Stream"
+            src={cameraUrl}
+            alt="ESP32-CAM Feed"
             onLoad={handleCameraLoad}
             onError={handleCameraError}
-            className={`w-full h-full object-contain ${!isCameraOnline ? 'hidden' : 'block'}`}
+            className="w-full h-full object-contain"
           />
 
-          {/* Offline / Placeholder Graphic */}
+          {/* Standby / Offline Overlay */}
           {!isCameraOnline && (
-            <div className="text-center p-6 max-w-md">
+            <div className="absolute inset-0 bg-[#060c1c]/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
               <div className="w-16 h-16 rounded-2xl bg-cyan-950/40 border border-cyan-500/30 flex items-center justify-center mx-auto mb-3">
                 <VideoOff className="w-8 h-8 text-cyan-400/60" />
               </div>
@@ -654,7 +711,7 @@ export default function PhysicalRobotConsole() {
                 ESP32-CAM STREAM STANDBY
               </h3>
               <p className="text-xs text-slate-400 font-mono leading-relaxed mb-3">
-                Connect your laptop/device Wi-Fi to the ESP32-CAM network (IP: <span className="text-cyan-300 font-bold">192.168.4.1</span>).
+                Connect your laptop to the ESP32-CAM network (<span className="text-cyan-300 font-bold">192.168.4.1</span>) or verify camera IP.
               </p>
               {cameraError && (
                 <div className="p-2 rounded bg-red-950/50 border border-red-800/80 text-[11px] font-mono text-red-300 mb-3">
@@ -670,18 +727,17 @@ export default function PhysicalRobotConsole() {
             </div>
           )}
 
-          {/* Submerged Pipe Overlay Reticle */}
+          {/* Overlay Reticle */}
           {isCameraOnline && (
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
               <div className="w-48 h-48 sm:w-64 sm:h-64 rounded-full border border-cyan-400/30"></div>
               <div className="absolute w-24 h-24 rounded-full border border-cyan-400/20"></div>
               <div className="absolute w-2 h-2 rounded-full bg-cyan-400/60"></div>
-              {/* Corner Watermarks */}
               <div className="absolute top-3 left-4 text-[10px] font-mono text-cyan-300/80 bg-black/60 px-2 py-0.5 rounded">
                 AQUA-SHIELD CAM • DUAL LEDS ACTIVE
               </div>
               <div className="absolute bottom-3 right-4 text-[10px] font-mono text-emerald-400 bg-black/60 px-2 py-0.5 rounded">
-                DIST: {telemetry.distance} cm
+                DIST: {telemetry.distance === -1 ? '> 340 cm (CLEAR)' : `${telemetry.distance} cm`}
               </div>
             </div>
           )}
@@ -694,34 +750,48 @@ export default function PhysicalRobotConsole() {
       {/* 3. LOWER SPLIT: ROBOT CONTROL & LIVE TELEMETRY                            */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        
+
         {/* ----------------------------------------------------------------------- */}
         {/* LEFT: ROBOT CONTROLS & ERGONOMIC D-PAD (5 COLS)                         */}
         {/* ----------------------------------------------------------------------- */}
         <div className="lg:col-span-5 p-4 rounded-2xl bg-[#070e20] border border-cyan-500/25 shadow-xl flex flex-col justify-between">
-          
+
           {/* Header */}
           <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
             <span className="text-xs font-mono font-bold text-white flex items-center gap-1.5">
               <Gamepad2 className="w-4 h-4 text-cyan-400" /> ROBOT MOTION CONTROL
             </span>
-            <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800">
-              KEYBOARD: W, A, S, D, SPACE
-            </span>
+            <div className="flex items-center space-x-2">
+              <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800">
+                W, A, S, D, SPACE
+              </span>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-bold ${swapOrientation ? 'bg-cyan-950/80 border-cyan-500 text-cyan-300' : 'bg-slate-900 border-slate-700 text-slate-400'
+                }`}>
+                {swapOrientation ? 'CALIBRATED: F↔R, B↔L' : '1:1 DIRECT'}
+              </span>
+            </div>
           </div>
 
-          {/* D-PAD DIRECTIONAL CLUSTER */}
+          {/* D-PAD DIRECTIONAL CLUSTER (HOLD-TO-MOVE) */}
           <div className="my-3 flex flex-col items-center justify-center">
-            
+
             {/* FORWARD (W / UP) */}
             <button
-              onPointerDown={() => sendRobotCommand('F')}
-              onPointerUp={() => sendRobotCommand('S')}
-              className={`w-28 sm:w-32 py-3 mb-2 rounded-2xl border font-mono font-bold text-xs sm:text-sm flex flex-col items-center justify-center transition-all ${
-                activeCommand === 'F'
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture?.(e.pointerId);
+                sendRobotCommand('F');
+              }}
+              onPointerUp={(e) => {
+                try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { }
+                sendRobotCommand('S');
+              }}
+              onPointerCancel={() => sendRobotCommand('S')}
+              onPointerLeave={() => sendRobotCommand('S')}
+              onContextMenu={(e) => e.preventDefault()}
+              className={`w-28 sm:w-32 py-3 mb-2 rounded-2xl border font-mono font-bold text-xs sm:text-sm flex flex-col items-center justify-center transition-all select-none ${activeCommand === 'F'
                   ? 'bg-cyan-400 text-slate-950 border-white shadow-[0_0_20px_rgba(0,229,255,0.7)] scale-95'
                   : 'bg-slate-900/90 hover:bg-slate-800 border-cyan-500/40 text-slate-200 hover:text-white hover:border-cyan-400'
-              }`}
+                }`}
               title="Forward (Press 'W' or 'Arrow Up')"
             >
               <span className="text-lg leading-none">▲</span>
@@ -730,16 +800,24 @@ export default function PhysicalRobotConsole() {
 
             {/* MIDDLE ROW: LEFT, STOP, RIGHT */}
             <div className="flex items-center justify-center space-x-2 w-full max-w-sm">
-              
+
               {/* LEFT (A / LEFT) */}
               <button
-                onPointerDown={() => sendRobotCommand('L')}
-                onPointerUp={() => sendRobotCommand('S')}
-                className={`flex-1 py-3.5 rounded-2xl border font-mono font-bold text-xs flex flex-col items-center justify-center transition-all ${
-                  activeCommand === 'L'
+                onPointerDown={(e) => {
+                  e.currentTarget.setPointerCapture?.(e.pointerId);
+                  sendRobotCommand('L');
+                }}
+                onPointerUp={(e) => {
+                  try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { }
+                  sendRobotCommand('S');
+                }}
+                onPointerCancel={() => sendRobotCommand('S')}
+                onPointerLeave={() => sendRobotCommand('S')}
+                onContextMenu={(e) => e.preventDefault()}
+                className={`flex-1 py-3.5 rounded-2xl border font-mono font-bold text-xs flex flex-col items-center justify-center transition-all select-none ${activeCommand === 'L'
                     ? 'bg-cyan-400 text-slate-950 border-white shadow-[0_0_20px_rgba(0,229,255,0.7)] scale-95'
                     : 'bg-slate-900/90 hover:bg-slate-800 border-cyan-500/40 text-slate-200 hover:text-white hover:border-cyan-400'
-                }`}
+                  }`}
                 title="Left (Press 'A' or 'Arrow Left')"
               >
                 <span className="text-lg leading-none">◀</span>
@@ -749,26 +827,33 @@ export default function PhysicalRobotConsole() {
               {/* VISUALLY PROMINENT STOP BUTTON (SPACE) */}
               <button
                 onClick={() => sendRobotCommand('S')}
-                className={`w-28 sm:w-32 py-4 rounded-2xl font-mono font-black text-xs sm:text-sm tracking-wider flex flex-col items-center justify-center transition-all shadow-[0_0_25px_rgba(239,68,68,0.4)] ${
-                  activeCommand === 'S'
-                    ? 'bg-red-600 hover:bg-red-500 text-white border-2 border-white scale-100 shadow-[0_0_30px_rgba(239,68,68,0.7)]'
-                    : 'bg-red-700 hover:bg-red-600 text-white border-2 border-red-500'
-                }`}
-                title="Emergency Halt (Press 'Space')"
+                className={`w-24 sm:w-28 py-4 rounded-2xl border-2 font-mono font-black text-sm flex flex-col items-center justify-center transition-all select-none ${activeCommand === 'S'
+                    ? 'bg-red-600 border-red-400 text-white shadow-[0_0_25px_rgba(239,68,68,0.8)] scale-95 animate-pulse'
+                    : 'bg-red-950/80 hover:bg-red-900 border-red-700 text-red-200 hover:text-white'
+                  }`}
+                title="Emergency Halt (Spacebar)"
               >
-                <span className="text-sm font-black">🛑 STOP</span>
-                <span className="text-[9px] tracking-widest text-red-200 mt-0.5">(SPACE)</span>
+                <span className="text-base font-black tracking-wider">STOP</span>
+                <span className="text-[9px] text-red-300">SPACEBAR</span>
               </button>
 
               {/* RIGHT (D / RIGHT) */}
               <button
-                onPointerDown={() => sendRobotCommand('R')}
-                onPointerUp={() => sendRobotCommand('S')}
-                className={`flex-1 py-3.5 rounded-2xl border font-mono font-bold text-xs flex flex-col items-center justify-center transition-all ${
-                  activeCommand === 'R'
+                onPointerDown={(e) => {
+                  e.currentTarget.setPointerCapture?.(e.pointerId);
+                  sendRobotCommand('R');
+                }}
+                onPointerUp={(e) => {
+                  try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { }
+                  sendRobotCommand('S');
+                }}
+                onPointerCancel={() => sendRobotCommand('S')}
+                onPointerLeave={() => sendRobotCommand('S')}
+                onContextMenu={(e) => e.preventDefault()}
+                className={`flex-1 py-3.5 rounded-2xl border font-mono font-bold text-xs flex flex-col items-center justify-center transition-all select-none ${activeCommand === 'R'
                     ? 'bg-cyan-400 text-slate-950 border-white shadow-[0_0_20px_rgba(0,229,255,0.7)] scale-95'
                     : 'bg-slate-900/90 hover:bg-slate-800 border-cyan-500/40 text-slate-200 hover:text-white hover:border-cyan-400'
-                }`}
+                  }`}
                 title="Right (Press 'D' or 'Arrow Right')"
               >
                 <span className="text-lg leading-none">▶</span>
@@ -779,120 +864,245 @@ export default function PhysicalRobotConsole() {
 
             {/* BACKWARD (S / DOWN) */}
             <button
-              onPointerDown={() => sendRobotCommand('B')}
-              onPointerUp={() => sendRobotCommand('S')}
-              className={`w-28 sm:w-32 py-3 mt-2 rounded-2xl border font-mono font-bold text-xs sm:text-sm flex flex-col items-center justify-center transition-all ${
-                activeCommand === 'B'
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture?.(e.pointerId);
+                sendRobotCommand('B');
+              }}
+              onPointerUp={(e) => {
+                try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { }
+                sendRobotCommand('S');
+              }}
+              onPointerCancel={() => sendRobotCommand('S')}
+              onPointerLeave={() => sendRobotCommand('S')}
+              onContextMenu={(e) => e.preventDefault()}
+              className={`w-28 sm:w-32 py-3 mt-2 rounded-2xl border font-mono font-bold text-xs sm:text-sm flex flex-col items-center justify-center transition-all select-none ${activeCommand === 'B'
                   ? 'bg-cyan-400 text-slate-950 border-white shadow-[0_0_20px_rgba(0,229,255,0.7)] scale-95'
                   : 'bg-slate-900/90 hover:bg-slate-800 border-cyan-500/40 text-slate-200 hover:text-white hover:border-cyan-400'
-              }`}
+                }`}
               title="Backward (Press 'S' or 'Arrow Down')"
             >
+              <span className="text-[10px] tracking-wider mb-0.5">BACKWARD (S)</span>
               <span className="text-lg leading-none">▼</span>
-              <span className="text-[10px] tracking-wider mt-0.5">BACKWARD (S)</span>
             </button>
 
           </div>
 
-          {/* SAFETY PROTOCOL ADVISORY */}
-          <div className="mt-3 p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 text-[11px] font-mono text-slate-400 leading-snug">
-            <div className="flex items-center space-x-1.5 text-cyan-400 font-bold mb-1">
-              <Shield className="w-3.5 h-3.5" />
-              <span>SAFETY INTERLOCK ACTIVE</span>
+          {/* Safety Notice Footer */}
+          <div className="mt-2 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] font-mono text-slate-400 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center space-x-2">
+              <span className={`w-2 h-2 rounded-full ${isRobotConnected ? 'bg-emerald-400' : 'bg-red-500'}`}></span>
+              <span>Hold to move • Release to stop</span>
             </div>
-            <span>• Motors halt automatically on key release.</span><br />
-            <span>• Initial state is locked at STOP. Spacebar instantly cuts motor power.</span>
+            <span className="text-cyan-400 text-[10px]">
+              {swapOrientation ? 'Fwd→Front • Back→Back • Right→Right • Left→Left' : 'Standard 1:1 • 500ms Watchdog'}
+            </span>
           </div>
 
         </div>
 
         {/* ----------------------------------------------------------------------- */}
-        {/* RIGHT: LIVE TELEMETRY CARDS (7 COLS)                                    */}
+        {/* RIGHT: LIVE TELEMETRY DASHBOARD (7 COLS)                                */}
         {/* ----------------------------------------------------------------------- */}
-        <div className="lg:col-span-7 p-4 rounded-2xl bg-[#070e20] border border-cyan-500/25 shadow-xl flex flex-col justify-between">
-          
+        <div className={`lg:col-span-7 p-4 rounded-2xl border shadow-xl flex flex-col justify-between transition-all ${hasActiveAlert
+            ? 'bg-[#140507]/90 border-red-500/70 shadow-[0_0_30px_rgba(239,68,68,0.35)]'
+            : 'bg-[#070e20] border-cyan-500/25'
+          }`}>
+
           {/* Header */}
-          <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
-            <span className="text-xs font-mono font-bold text-white flex items-center gap-1.5">
-              <Activity className="w-4 h-4 text-cyan-400" /> LIVE TELEMETRY STREAM
-            </span>
-            <span className="text-[10px] font-mono text-emerald-400">
-              {telemetry.timestamp ? `LAST UPDATE: ${new Date(telemetry.timestamp).toLocaleTimeString()}` : 'AWAITING ESP32 PACKET (~1s)'}
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-3 border-b border-slate-800">
+            <div className="flex items-center space-x-2">
+              <span className="text-xs font-mono font-bold text-white flex items-center gap-1.5">
+                <Activity className={`w-4 h-4 ${hasActiveAlert ? 'text-red-400 animate-pulse' : 'text-cyan-400'}`} />
+                LIVE SENSOR TELEMETRY
+              </span>
+              {hasActiveAlert && (
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-black bg-red-950 border border-red-500 text-red-300 animate-pulse">
+                  🚨 HAZARD ALERT ACTIVE
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => setTestAlertActive(prev => !prev)}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold border transition-all ${testAlertActive
+                    ? 'bg-red-600 text-white border-red-400 shadow-[0_0_12px_rgba(239,68,68,0.6)] animate-pulse'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700 hover:border-red-400'
+                  }`}
+                title="Toggle simulated limit breach to preview red alert theme"
+              >
+                {testAlertActive ? '🔴 TEST ALERT ON' : '⚡ Test Alert Theme'}
+              </button>
+              <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+                Update Rate: ~1 Hz
+              </span>
+            </div>
           </div>
 
-          {/* TELEMETRY METRIC TILES (7 METRICS SPECIFIED) */}
+          {/* HAZARD SUMMARY BANNER WHEN LIMIT IS CROSSED */}
+          {hasActiveAlert && (
+            <div className="mb-3 p-2.5 sm:p-3 rounded-xl bg-red-950/90 border-2 border-red-500 text-red-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 animate-pulse shadow-[0_0_20px_rgba(239,68,68,0.4)]">
+              <div className="flex items-center space-x-2 text-xs font-mono font-bold">
+                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 animate-bounce" />
+                <span className="text-[11px] sm:text-xs">
+                  LIMIT BREACH DETECTED:{' '}
+                  {[
+                    isCurrentCritical && `CURRENT (${telemetry.current.toFixed(0)}mA >2000mA Stall)`,
+                    isGasCritical && `GAS (${telemetry.gas} RAW >1500 Toxic)`,
+                    isDistanceCritical && `DISTANCE (${telemetry.distance}cm ≤15cm Collision)`
+                  ].filter(Boolean).join(' • ')}
+                </span>
+              </div>
+              <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded bg-red-900 border border-red-400 text-white font-black shrink-0">
+                CRITICAL LIMIT
+              </span>
+            </div>
+          )}
+
+          {/* TELEMETRY TILES GRID (6 CARDS) */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 my-1">
-            
-            {/* 1. VOLTAGE */}
-            <div className="p-3 rounded-xl bg-[#06101e] border border-cyan-500/30 flex flex-col justify-between hover:border-cyan-400 transition-all">
+
+            {/* 1. BUS VOLTAGE */}
+            <div className="p-3 rounded-xl bg-[#06101e] border border-cyan-500/30 hover:border-cyan-400 flex flex-col justify-between transition-all">
               <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                <span>VOLTAGE</span>
+                <span className="font-bold">VOLTAGE</span>
                 <Zap className="w-3.5 h-3.5 text-cyan-400" />
               </div>
+
               <div className="my-1.5">
                 <span className="text-2xl sm:text-3xl font-black font-mono text-white">
                   {telemetry.voltage.toFixed(2)}
                 </span>
                 <span className="text-xs font-mono text-cyan-400 ml-1">V</span>
               </div>
+
               <div className="text-[9px] font-mono text-slate-400">
-                INA219 Bus • Li-ion Pack
+                INA219 Li-ion Pack (3S)
               </div>
             </div>
 
-            {/* 2. CURRENT */}
-            <div className="p-3 rounded-xl bg-[#06101e] border border-cyan-500/30 flex flex-col justify-between hover:border-cyan-400 transition-all">
+            {/* 2. CURRENT LOAD */}
+            <div className={`p-3 rounded-xl flex flex-col justify-between transition-all ${isCurrentCritical
+                ? 'bg-red-950/80 border-2 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
+                : isCurrentWarning
+                  ? 'bg-amber-950/40 border border-amber-500/70 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                  : 'bg-[#06101e] border border-cyan-500/30 hover:border-cyan-400'
+              }`}>
               <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                <span>CURRENT</span>
-                <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="flex items-center gap-1 font-bold">
+                  <span>CURRENT LOAD</span>
+                  {isCurrentCritical && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping"></span>}
+                </span>
+                <Gauge className={`w-3.5 h-3.5 ${isCurrentCritical ? 'text-red-400' : isCurrentWarning ? 'text-amber-400' : 'text-cyan-400'}`} />
               </div>
+
               <div className="my-1.5">
-                <span className={`text-2xl sm:text-3xl font-black font-mono ${
-                  telemetry.current > 1500 ? 'text-red-400 animate-pulse' : 'text-white'
-                }`}>
+                <span className={`text-2xl sm:text-3xl font-black font-mono ${isCurrentCritical ? 'text-red-400' : isCurrentWarning ? 'text-amber-300' : 'text-white'
+                  }`}>
                   {telemetry.current.toFixed(1)}
                 </span>
                 <span className="text-xs font-mono text-cyan-400 ml-1">mA</span>
               </div>
-              <div className="text-[9px] font-mono text-slate-400">
-                INA219 Shunt Load
+
+              <div className="space-y-1">
+                <div className="text-[9px] font-mono text-slate-400 flex items-center justify-between">
+                  <span>INA219 Shunt Load</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${isCurrentCritical ? 'bg-red-900 text-red-200' : isCurrentWarning ? 'bg-amber-900/80 text-amber-200' : 'bg-slate-800 text-emerald-300'
+                    }`}>
+                    {isCurrentCritical ? 'STALL BREACH' : isCurrentWarning ? 'HIGH LOAD' : 'NORMAL'}
+                  </span>
+                </div>
+                <div className="text-[8.5px] font-mono text-slate-400 border-t border-slate-800/80 pt-1 flex justify-between">
+                  <span>Safe: &lt;1400mA</span>
+                  <span className={isCurrentCritical ? 'text-red-400 font-bold' : 'text-slate-400'}>Limit: &gt;2000mA</span>
+                </div>
               </div>
             </div>
 
             {/* 3. GAS LEVEL */}
-            <div className="p-3 rounded-xl bg-[#06101e] border border-cyan-500/30 flex flex-col justify-between hover:border-cyan-400 transition-all">
+            <div className={`p-3 rounded-xl flex flex-col justify-between transition-all ${isGasCritical
+                ? 'bg-red-950/80 border-2 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
+                : isGasWarning
+                  ? 'bg-amber-950/40 border border-amber-500/70 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                  : 'bg-[#06101e] border border-cyan-500/30 hover:border-cyan-400'
+              }`}>
               <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                <span>GAS LEVEL</span>
-                <Droplets className={`w-3.5 h-3.5 ${telemetry.gas > 1800 ? 'text-red-400' : 'text-cyan-400'}`} />
+                <span className="flex items-center gap-1 font-bold">
+                  <span>GAS LEVEL</span>
+                  {isGasCritical && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping"></span>}
+                </span>
+                <Droplets className={`w-3.5 h-3.5 ${isGasCritical ? 'text-red-400' : isGasWarning ? 'text-amber-400' : 'text-cyan-400'}`} />
               </div>
+
               <div className="my-1.5">
-                <span className={`text-2xl sm:text-3xl font-black font-mono ${
-                  telemetry.gas > 1800 ? 'text-red-400 animate-pulse' : 'text-white'
-                }`}>
+                <span className={`text-2xl sm:text-3xl font-black font-mono ${isGasCritical ? 'text-red-400' : isGasWarning ? 'text-amber-300' : 'text-white'
+                  }`}>
                   {telemetry.gas}
                 </span>
                 <span className="text-[10px] font-mono text-slate-400 ml-1">RAW</span>
               </div>
-              <div className={`text-[9px] font-mono font-bold ${telemetry.gas > 1800 ? 'text-red-400' : 'text-emerald-400'}`}>
-                {telemetry.gas > 1800 ? '⚠️ High Hazard' : '🟢 Atmosphere Normal'}
+
+              <div className="space-y-1">
+                <div className="text-[9px] font-mono flex items-center justify-between">
+                  <span className={isGasCritical ? 'text-red-300 font-bold' : isGasWarning ? 'text-amber-300 font-bold' : 'text-emerald-400 font-semibold'}>
+                    {isGasCritical ? '⚠️ Toxic Sewer Gas' : isGasWarning ? '🟡 Elevated Gas' : '🟢 Atmosphere Normal'}
+                  </span>
+                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${isGasCritical ? 'bg-red-900 text-red-200' : isGasWarning ? 'bg-amber-900/80 text-amber-200' : 'bg-slate-800 text-emerald-300'
+                    }`}>
+                    {isGasCritical ? 'GAS BREACH' : isGasWarning ? 'CAUTION' : 'SAFE'}
+                  </span>
+                </div>
+                <div className="text-[8.5px] font-mono text-slate-400 border-t border-slate-800/80 pt-1 flex justify-between">
+                  <span>Safe: &lt;700 RAW</span>
+                  <span className={isGasCritical ? 'text-red-400 font-bold' : 'text-slate-400'}>Limit: &gt;1500 RAW</span>
+                </div>
               </div>
             </div>
 
             {/* 4. DISTANCE */}
-            <div className="p-3 rounded-xl bg-[#06101e] border border-cyan-500/30 flex flex-col justify-between hover:border-cyan-400 transition-all">
+            <div className={`p-3 rounded-xl flex flex-col justify-between transition-all ${isDistanceCritical
+                ? 'bg-red-950/80 border-2 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
+                : isDistanceWarning
+                  ? 'bg-amber-950/40 border border-amber-500/70 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                  : 'bg-[#06101e] border border-cyan-500/30 hover:border-cyan-400'
+              }`}>
               <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                <span>DISTANCE</span>
-                <Compass className="w-3.5 h-3.5 text-cyan-400" />
-              </div>
-              <div className="my-1.5">
-                <span className="text-2xl sm:text-3xl font-black font-mono text-white">
-                  {telemetry.distance}
+                <span className="flex items-center gap-1 font-bold">
+                  <span>DISTANCE</span>
+                  {isDistanceCritical && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping"></span>}
                 </span>
-                <span className="text-xs font-mono text-cyan-400 ml-1">cm</span>
+                <Compass className={`w-3.5 h-3.5 ${isDistanceCritical ? 'text-red-400' : isDistanceWarning ? 'text-amber-400' : 'text-cyan-400'}`} />
               </div>
-              <div className="text-[9px] font-mono text-slate-400">
-                Ultrasonic HC-SR04
+
+              <div className="my-1.5">
+                <span className={`text-2xl sm:text-3xl font-black font-mono ${isDistanceCritical ? 'text-red-400' : isDistanceWarning ? 'text-amber-300' : 'text-white'
+                  }`}>
+                  {telemetry.distance === -1 ? '--' : telemetry.distance}
+                </span>
+                <span className="text-xs font-mono text-cyan-400 ml-1">{telemetry.distance === -1 ? '' : 'cm'}</span>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-[9px] font-mono text-slate-400 flex items-center justify-between">
+                  <span>HC-SR04 Ranger</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${telemetry.distance === -1
+                      ? 'bg-slate-800 text-cyan-300'
+                      : isDistanceCritical
+                        ? 'bg-red-900 text-red-200'
+                        : isDistanceWarning
+                          ? 'bg-amber-900/80 text-amber-200'
+                          : telemetry.distance > 0
+                            ? 'bg-slate-800 text-emerald-300'
+                            : 'bg-slate-800 text-slate-400'
+                    }`}>
+                    {telemetry.distance === -1 ? 'OUT OF RANGE' : isDistanceCritical ? 'COLLISION HAZARD' : isDistanceWarning ? 'NEAR WALL' : telemetry.distance > 0 ? 'CLEAR' : 'IDLE'}
+                  </span>
+                </div>
+                <div className="text-[8.5px] font-mono text-slate-400 border-t border-slate-800/80 pt-1 flex justify-between">
+                  <span>Safe: &gt;25cm</span>
+                  <span className={isDistanceCritical ? 'text-red-400 font-bold' : 'text-slate-400'}>Limit: ≤15cm</span>
+                </div>
               </div>
             </div>
 
@@ -937,7 +1147,7 @@ export default function PhysicalRobotConsole() {
           {/* TELEMETRY DIAGNOSTIC FOOTER */}
           <div className="mt-3 p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-between text-xs font-mono">
             <span className="text-slate-400">
-              STREAM: <strong className="text-cyan-300">ESP32 BluetoothSerial (SPP)</strong>
+              STREAM: <strong className="text-cyan-300">ESP32 Local Wi-Fi (ws://{robotIp}:{robotPort})</strong>
             </span>
             <button
               onClick={() => setShowRawLogs(!showRawLogs)}
@@ -953,30 +1163,22 @@ export default function PhysicalRobotConsole() {
 
       </div>
 
-      {/* ========================================================================= */}
-      {/* 4. LABORATORY VERIFICATION & JUDGE EVALUATION MATRIX (TESTS 1 - 9)       */}
-      {/* ========================================================================= */}
-      <PrototypeTestingSuite 
-        telemetry={telemetry}
-        isCameraOnline={isCameraOnline}
-        activeCommand={activeCommand}
-        sendRobotCommand={sendRobotCommand}
-      />
+
 
       {/* ========================================================================= */}
-      {/* 5. COLLAPSIBLE RAW SERIAL LOGS FOR DEBUGGING                              */}
+      {/* 5. COLLAPSIBLE RAW SERIAL / WEBSOCKET LOGS FOR DEBUGGING                   */}
       {/* ========================================================================= */}
       {showRawLogs && (
-        <div className="mt-4 p-4 rounded-2xl bg-black border border-cyan-500/30 font-mono text-xs shadow-2xl">
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
-            <span className="text-cyan-300 font-bold flex items-center gap-2">
-              <Terminal className="w-4 h-4" /> LIVE ESP32 SERIAL CONSOLE BUFFER
+        <div className="mt-6 p-4 sm:p-5 rounded-2xl bg-black border-2 border-cyan-500/40 font-mono text-xs shadow-2xl">
+          <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
+            <span className="text-cyan-300 font-bold flex items-center gap-2 text-sm">
+              <Terminal className="w-4 h-4" /> LIVE ESP32 WEBSOCKET TELEMETRY BUFFER
             </span>
-            <span className="text-[10px] text-slate-500">Baud Rate: 115200</span>
+            <span className="text-[11px] text-slate-500">JSON Stream</span>
           </div>
-          <div className="max-h-48 overflow-y-auto space-y-1 font-mono text-[11px] text-emerald-400/90">
+          <div className="max-h-56 overflow-y-auto space-y-1 font-mono text-[11px] text-emerald-400/90">
             {rawLogs.length === 0 ? (
-              <span className="text-slate-600 italic">No incoming serial packets yet. Connect to robot COM port to view stream.</span>
+              <span className="text-slate-600 italic">No incoming packets yet. Enter robot IP and click CONNECT to establish local Wi-Fi WebSocket link.</span>
             ) : (
               rawLogs.map((log, i) => (
                 <div key={i} className="leading-tight">

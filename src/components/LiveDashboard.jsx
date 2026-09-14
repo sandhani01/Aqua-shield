@@ -115,10 +115,9 @@ export default function LiveDashboard() {
   };
 
   const handleManualMove = (dir) => {
-    setActiveMode('manual');
-    if (dir === 'forward' && currentStepIdx < 5) {
+    if ((dir === 'forward' || dir === 'right') && currentStepIdx < 5) {
       setCurrentStepIdx(prev => Math.min(5, prev + 1));
-    } else if (dir === 'reverse' && currentStepIdx > 0) {
+    } else if ((dir === 'reverse' || dir === 'left') && currentStepIdx > 0) {
       setCurrentStepIdx(prev => Math.max(0, prev - 1));
     }
   };
@@ -1096,7 +1095,7 @@ export default function LiveDashboard() {
                 </button>
 
                 <button
-                  onClick={() => handleManualMove('reverse')}
+                  onClick={() => handleManualMove('left')}
                   className="absolute left-1 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-cyan-300 hover:scale-110 active:scale-95"
                   title="Left"
                 >
@@ -1104,7 +1103,7 @@ export default function LiveDashboard() {
                 </button>
 
                 <button
-                  onClick={() => handleManualMove('forward')}
+                  onClick={() => handleManualMove('right')}
                   className="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-cyan-300 hover:scale-110 active:scale-95"
                   title="Right"
                 >
@@ -1127,13 +1126,13 @@ export default function LiveDashboard() {
                   <ArrowDown className="w-3 h-3 text-cyan-400" /> Reverse
                 </button>
                 <button
-                  onClick={() => handleManualMove('reverse')}
+                  onClick={() => handleManualMove('left')}
                   className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white flex items-center justify-center gap-1"
                 >
                   <ArrowLeft className="w-3 h-3 text-cyan-400" /> Left
                 </button>
                 <button
-                  onClick={() => handleManualMove('forward')}
+                  onClick={() => handleManualMove('right')}
                   className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white flex items-center justify-center gap-1"
                 >
                   <ArrowRight className="w-3 h-3 text-cyan-400" /> Right

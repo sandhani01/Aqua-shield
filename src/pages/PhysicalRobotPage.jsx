@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import PhysicalRobotConsole from '../components/PhysicalRobotConsole';
-import Footer from '../components/Footer';
 
 export default function PhysicalRobotPage() {
   useEffect(() => {
@@ -9,12 +8,11 @@ export default function PhysicalRobotPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#040814] text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
+    <div className="min-h-screen bg-[#040814] text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200 relative isolate">
       <Navbar />
       <div className="pt-20">
         <PhysicalRobotConsole />
       </div>
-      <Footer />
     </div>
   );
 }

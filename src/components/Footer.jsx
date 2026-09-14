@@ -49,23 +49,18 @@ export default function Footer() {
               <li><a href="/#solution" className="hover:text-cyan-400 transition-colors">02. Solution Concept</a></li>
               <li><a href="/#how-it-works" className="hover:text-cyan-400 transition-colors">03. How It Works</a></li>
               <li><Link to="/robot" className="hover:text-cyan-400 transition-colors">04. Live Robot &amp; Tests</Link></li>
-              <li><Link to="/simulator" className="text-cyan-400 font-semibold hover:text-cyan-300 transition-colors">05. Live Simulator →</Link></li>
-              <li><a href="/#comparison" className="hover:text-cyan-400 transition-colors">06. Why AQUA-SHIELD?</a></li>
+              <li><a href="/#comparison" className="hover:text-cyan-400 transition-colors">05. Why AQUA-SHIELD?</a></li>
             </ul>
           </div>
 
-          {/* Col 3: Specifications & BOM */}
+          {/* Col 3: Specifications & Sourcing */}
           <div className="space-y-3">
             <h4 className="text-xs font-mono font-bold text-slate-200 uppercase tracking-wider">
               ENGINEERING &amp; SOURCING
             </h4>
             <ul className="space-y-2 text-sm text-slate-400">
-              <li><a href="/#technology" className="hover:text-cyan-400 transition-colors">Hardware Architecture</a></li>
-              <li><a href="/#cost" className="hover:text-cyan-400 transition-colors">Bill of Materials (₹8,250)</a></li>
               <li><a href="/#use-cases" className="hover:text-cyan-400 transition-colors">Deployment Scenarios</a></li>
-              <li><a href="/#roadmap" className="hover:text-cyan-400 transition-colors">6-Phase Roadmap</a></li>
               <li><a href="/#research-gap" className="hover:text-cyan-400 transition-colors">Academic Research Gap</a></li>
-              <li><a href="/#team" className="hover:text-cyan-400 transition-colors">Engineering Team</a></li>
             </ul>
           </div>
 

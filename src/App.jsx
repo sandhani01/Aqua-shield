@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import HomePage from './pages/HomePage';
-import SimulatorPage from './pages/SimulatorPage';
+// import SimulatorPage from './pages/SimulatorPage';
 import PhysicalRobotPage from './pages/PhysicalRobotPage';
 
 function ScrollManager() {
@@ -33,9 +33,11 @@ export default function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/robot" element={<PhysicalRobotPage />} />
         <Route path="/live-robot" element={<Navigate to="/robot" replace />} />
-        <Route path="/simulator" element={<SimulatorPage />} />
-        <Route path="/dashboard" element={<Navigate to="/simulator" replace />} />
-        <Route path="/live-dashboard" element={<Navigate to="/simulator" replace />} />
+        {/* Simulator temporarily disabled */}
+        {/* <Route path="/simulator" element={<SimulatorPage />} /> */}
+        <Route path="/simulator" element={<Navigate to="/robot" replace />} />
+        <Route path="/dashboard" element={<Navigate to="/robot" replace />} />
+        <Route path="/live-dashboard" element={<Navigate to="/robot" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Shield, Activity, Radio, CheckCircle2, DollarSign } from 'lucide-react';
+import { Shield, Radio, CheckCircle2 } from 'lucide-react';
 
 export default function FinalCTA() {
   return (
@@ -32,31 +32,13 @@ export default function FinalCTA() {
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center justify-center gap-4 max-w-2xl mx-auto">
-
-          <Link
-            to="/dashboard"
-            className="inline-flex items-center justify-center px-8 py-4 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-base transition-all shadow-lg shadow-cyan-500/20 hover:scale-105"
-          >
-            <Activity className="w-5 h-5 mr-2" />
-            <span>Launch simulator</span>
-          </Link>
-
           <Link
             to="/robot"
-            className="inline-flex items-center justify-center px-8 py-4 rounded-xl bg-slate-900 border border-slate-700 hover:border-cyan-400 text-white font-semibold text-base transition-all hover:bg-slate-800"
+            className="inline-flex items-center justify-center px-8 py-4 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-base transition-all shadow-lg shadow-cyan-500/20 hover:scale-105"
           >
-            <Radio className="w-5 h-5 mr-2 text-cyan-400" />
+            <Radio className="w-5 h-5 mr-2 text-slate-950" />
             <span>Open Live Robot</span>
           </Link>
-
-          <a
-            href="#cost"
-            className="inline-flex items-center justify-center px-6 py-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-400 text-slate-300 hover:text-white font-semibold text-base transition-all"
-          >
-            <DollarSign className="w-5 h-5 mr-1.5 text-emerald-400" />
-            <span>₹8,250 BOM Breakdown</span>
-          </a>
-
         </div>
 
         {/* Footer Stamp */}

@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Shield, Activity, Menu, X, ArrowLeft, Radio } from 'lucide-react';
+import { Shield, Menu, X, ArrowLeft, Radio } from 'lucide-react';
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
-  const isSimulator = location.pathname === '/simulator' || location.pathname === '/dashboard' || location.pathname === '/live-dashboard';
   const isRobot = location.pathname === '/robot' || location.pathname === '/live-robot';
-  const isSubpage = isSimulator || isRobot;
+  const isSubpage = isRobot;
 
   useEffect(() => {
     const handleScroll = () => {
@@ -23,9 +22,6 @@ export default function Navbar() {
     { name: 'Solution', href: '#solution' },
     { name: 'How It Works', href: '#how-it-works' },
     { name: 'Impact', href: '#impact' },
-    { name: 'Technology', href: '#technology' },
-    { name: 'Cost', href: '#cost' },
-    { name: 'Roadmap', href: '#roadmap' },
   ];
 
   return (
@@ -66,59 +62,24 @@ export default function Navbar() {
             })}
           </nav>
 
-          {/* Right Action CTA: Live Robot & Simulator */}
+          {/* Right Action CTA: Live Robot */}
           <div className="hidden sm:flex items-center space-x-2.5">
             {isRobot ? (
-              <>
-                <Link
-                  to="/simulator"
-                  className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-bold text-slate-300 hover:text-white bg-slate-900 border border-slate-700 hover:border-cyan-400 rounded-xl transition-all"
-                >
-                  <Activity className="w-3.5 h-3.5 mr-1.5 text-cyan-400" />
-                  <span>Simulator</span>
-                </Link>
-                <Link
-                  to="/"
-                  className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-bold text-cyan-300 bg-cyan-950/80 hover:bg-cyan-900/90 border border-cyan-500/40 rounded-xl transition-all shadow-[0_0_15px_rgba(6,182,212,0.25)]"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5 mr-1.5 text-cyan-400" />
-                  <span>Overview</span>
-                </Link>
-              </>
-            ) : isSimulator ? (
-              <>
-                <Link
-                  to="/robot"
-                  className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-bold text-slate-950 bg-cyan-400 hover:bg-cyan-300 rounded-xl transition-all shadow-[0_0_15px_rgba(6,182,212,0.35)]"
-                >
-                  <Radio className="w-3.5 h-3.5 mr-1.5 text-slate-950" />
-                  <span>Live Robot</span>
-                </Link>
-                <Link
-                  to="/"
-                  className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-bold text-cyan-300 bg-cyan-950/80 hover:bg-cyan-900/90 border border-cyan-500/40 rounded-xl transition-all"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5 mr-1.5 text-cyan-400" />
-                  <span>Overview</span>
-                </Link>
-              </>
+              <Link
+                to="/"
+                className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-bold text-cyan-300 bg-cyan-950/80 hover:bg-cyan-900/90 border border-cyan-500/40 rounded-xl transition-all shadow-[0_0_15px_rgba(6,182,212,0.25)]"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 mr-1.5 text-cyan-400" />
+                <span>Overview</span>
+              </Link>
             ) : (
-              <>
-                <Link
-                  to="/robot"
-                  className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-bold text-cyan-300 bg-cyan-950/80 hover:bg-cyan-900/90 border border-cyan-500/40 rounded-xl transition-all shadow-[0_0_15px_rgba(6,182,212,0.25)] hover:scale-105"
-                >
-                  <Radio className="w-3.5 h-3.5 mr-1.5 text-cyan-400 animate-pulse" />
-                  <span>Live Robot</span>
-                </Link>
-                <Link
-                  to="/simulator"
-                  className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-bold text-slate-950 bg-cyan-400 hover:bg-cyan-300 rounded-xl transition-all shadow-[0_0_15px_rgba(6,182,212,0.35)] hover:scale-105"
-                >
-                  <Activity className="w-3.5 h-3.5 mr-1.5" />
-                  <span>Simulator</span>
-                </Link>
-              </>
+              <Link
+                to="/robot"
+                className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-bold text-cyan-300 bg-cyan-950/80 hover:bg-cyan-900/90 border border-cyan-500/40 rounded-xl transition-all shadow-[0_0_15px_rgba(6,182,212,0.25)] hover:scale-105"
+              >
+                <Radio className="w-3.5 h-3.5 mr-1.5 text-cyan-400 animate-pulse" />
+                <span>Live Robot</span>
+              </Link>
             )}
           </div>
 
@@ -154,23 +115,26 @@ export default function Navbar() {
             })}
           </div>
           
-          <div className="grid grid-cols-2 gap-2">
-            <Link
-              to="/robot"
-              onClick={() => setMobileMenuOpen(false)}
-              className="w-full flex items-center justify-center py-2.5 text-xs font-bold text-cyan-300 bg-cyan-950/80 border border-cyan-500/40 hover:bg-cyan-900 rounded-xl transition-all"
-            >
-              <Radio className="w-4 h-4 mr-1.5 text-cyan-400" />
-              <span>Live Robot</span>
-            </Link>
-            <Link
-              to="/simulator"
-              onClick={() => setMobileMenuOpen(false)}
-              className="w-full flex items-center justify-center py-2.5 text-xs font-bold text-slate-950 bg-cyan-400 hover:bg-cyan-300 rounded-xl transition-all"
-            >
-              <Activity className="w-4 h-4 mr-1.5" />
-              <span>Simulator</span>
-            </Link>
+          <div className="flex justify-center">
+            {isRobot ? (
+              <Link
+                to="/"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full flex items-center justify-center py-2.5 text-xs font-bold text-cyan-300 bg-cyan-950/80 border border-cyan-500/40 hover:bg-cyan-900 rounded-xl transition-all"
+              >
+                <ArrowLeft className="w-4 h-4 mr-1.5 text-cyan-400" />
+                <span>Overview</span>
+              </Link>
+            ) : (
+              <Link
+                to="/robot"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full flex items-center justify-center py-2.5 text-xs font-bold text-cyan-300 bg-cyan-950/80 border border-cyan-500/40 hover:bg-cyan-900 rounded-xl transition-all"
+              >
+                <Radio className="w-4 h-4 mr-1.5 text-cyan-400" />
+                <span>Live Robot</span>
+              </Link>
+            )}
           </div>
         </div>
       )}

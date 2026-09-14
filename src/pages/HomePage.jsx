@@ -4,14 +4,14 @@ import Hero from '../components/Hero';
 import ProblemSection from '../components/ProblemSection';
 import SolutionSection from '../components/SolutionSection';
 import PipelineSection from '../components/PipelineSection';
-import DashboardGateway from '../components/DashboardGateway';
+// import DashboardGateway from '../components/DashboardGateway';
 import ComparisonSection from '../components/ComparisonSection';
 import UseCasesSection from '../components/UseCasesSection';
-import HardwareSection from '../components/HardwareSection';
-import BudgetSection from '../components/BudgetSection';
-import RoadmapSection from '../components/RoadmapSection';
+// import HardwareSection from '../components/HardwareSection';
+// import BudgetSection from '../components/BudgetSection';
+// import RoadmapSection from '../components/RoadmapSection';
 import ResearchGapSection from '../components/ResearchGapSection';
-import TeamSection from '../components/TeamSection';
+// import TeamSection from '../components/TeamSection';
 import FinalCTA from '../components/FinalCTA';
 import Footer from '../components/Footer';
 
@@ -32,8 +32,8 @@ export default function HomePage() {
         {/* 4. HOW IT WORKS: 5-Stage Autonomous Operational Sequence */}
         <PipelineSection />
 
-        {/* 5. DEDICATED LIVE TELEMETRY GATEWAY: Launch Standalone Console */}
-        <DashboardGateway />
+        {/* 5. DEDICATED LIVE TELEMETRY GATEWAY: Simulator removed for now */}
+        {/* <DashboardGateway /> */}
 
         {/* 7. WHY AQUA-SHIELD? (IMPACT): Safer, Faster, Cheaper, Scalable */}
         <ComparisonSection />
@@ -41,20 +41,20 @@ export default function HomePage() {
         {/* 8. WHERE IT DEPLOYS: 6 Real-World Municipal Scenarios */}
         <UseCasesSection />
 
-        {/* 9. HOW WE BUILT IT: Hardware Stack & Architecture */}
-        <HardwareSection />
+        {/* 9. HOW WE BUILT IT: Hardware Stack & Architecture - Removed as requested */}
+        {/* <HardwareSection /> */}
 
-        {/* 10. COST & SOURCING: ₹8,250 BOM Breakdown */}
-        <BudgetSection />
+        {/* 10. COST & SOURCING: ₹8,250 BOM Breakdown - Removed as requested */}
+        {/* <BudgetSection /> */}
 
-        {/* 11. ROADMAP: 6-Phase Scalability Progression */}
-        <RoadmapSection />
+        {/* 11. ROADMAP: 6-Phase Scalability Progression - Removed as requested */}
+        {/* <RoadmapSection /> */}
 
         {/* 12. RESEARCH GAP: Academic & Industrial Differentiation */}
         <ResearchGapSection />
 
-        {/* 13. ENGINEERING TEAM: Multidisciplinary SIH Innovators */}
-        <TeamSection />
+        {/* 13. ENGINEERING TEAM: Multidisciplinary SIH Innovators - Removed as requested */}
+        {/* <TeamSection /> */}
 
         {/* 14. FINAL CALL TO ACTION: The Pitch */}
         <FinalCTA />
