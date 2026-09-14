@@ -1,11 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Shield,
-  Wifi,
-  WifiOff,
-  Radio,
   Camera,
-  Video,
   VideoOff,
   Gamepad2,
   Activity,
@@ -15,31 +11,25 @@ import {
   AlertTriangle,
   RefreshCw,
   RotateCcw,
-  Maximize2,
   Sliders,
   Terminal,
   ChevronDown,
   ChevronUp,
   Power,
   Compass,
-  Sparkles,
-  Layers,
-  HelpCircle
+  Bluetooth
 } from 'lucide-react';
+import robotComm from '../services/robotCommunication';
 
 export default function PhysicalRobotConsole() {
-  // --- Local Wi-Fi Connection State ---
-  const [robotIp, setRobotIp] = useState(() => {
-    const saved = localStorage.getItem('aqua_shield_robot_ip');
-    if (!saved || saved === '192.168.1.105') {
-      localStorage.setItem('aqua_shield_robot_ip', '192.168.4.2');
-      return '192.168.4.2';
-    }
-    return saved;
-  });
-  const [robotPort, setRobotPort] = useState('81');
+  // --- Bluetooth Connection State ---
   const [isRobotConnected, setIsRobotConnected] = useState(false);
+  const [connectedPortName, setConnectedPortName] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [transportMode, setTransportMode] = useState(() => robotComm.mode); // 'webserial' | 'bridge'
+  const [bridgePorts, setBridgePorts] = useState([]);
+  const [selectedBridgePort, setSelectedBridgePort] = useState('');
   const [lastError, setLastError] = useState('');
 
   // --- Robot Motion State ---
@@ -102,12 +92,8 @@ export default function PhysicalRobotConsole() {
   const [streamKey, setStreamKey] = useState(Date.now());
 
   // Refs
-  const wsRef = useRef(null);
   const heartbeatTimerRef = useRef(null);
   const activeCommandRef = useRef('S');
-  const autoReconnectRef = useRef(false);
-  const reconnectTimeoutRef = useRef(null);
-  const connectRobotRef = useRef(null);
 
   // -------------------------------------------------------------
   // 1. Hold-To-Move & Safe Command Dispatcher
@@ -131,21 +117,13 @@ export default function PhysicalRobotConsole() {
     }
   }, [swapOrientation]);
 
-  // Helper to send ultra-fast 1-byte raw character over WebSocket
+  // Helper to send single-byte raw command over Bluetooth
   const sendRaw = useCallback((c) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      try {
-        // Send single-byte raw command ('F', 'B', 'L', 'R', 'S')
-        // Bypasses JSON parsing on ESP32 for sub-millisecond execution!
-        wsRef.current.send(c);
-      } catch (e) {
-        console.error('[WS Send Error]', e);
-      }
-    }
+    robotComm.sendCommand(c);
   }, []);
 
   // Stops motor movement immediately, clears heartbeat, and sends
-  // a burst of 3 'S' stop packets (+0ms, +35ms, +70ms) to ensure zero stop-lag over Wi-Fi
+  // a burst of 3 'S' stop packets (+0ms, +35ms, +70ms) to ensure zero stop-lag over Bluetooth
   const stopMoving = useCallback(() => {
     if (heartbeatTimerRef.current) {
       clearInterval(heartbeatTimerRef.current);
@@ -159,14 +137,13 @@ export default function PhysicalRobotConsole() {
     // Immediate STOP
     sendRaw('S');
 
-    // Redundancy burst: Send 'S' twice more in quick succession.
-    // Over 2.4GHz Wi-Fi with motor EMI, this guarantees the STOP packet is NEVER lost in transit!
+    // Redundancy burst
     setTimeout(() => sendRaw('S'), 35);
     setTimeout(() => sendRaw('S'), 70);
   }, [sendRaw]);
 
   // Starts motor movement and sends periodic heartbeat (every 200ms)
-  // to satisfy the ESP32 hardware-side 1500ms safety timeout
+  // to satisfy the ESP32 hardware-side 1500ms safety timeout while held
   const startMoving = useCallback((cmd) => {
     const valid = ['F', 'B', 'L', 'R'].includes(cmd);
     if (!valid) return;
@@ -184,8 +161,7 @@ export default function PhysicalRobotConsole() {
     // Send immediate 1-byte command
     sendRaw(wireCmd);
 
-    // Keep sending command every 200ms while held (5 pkts/sec is negligible bandwidth,
-    // and easily survives transient Wi-Fi drops while keeping ESP32 1500ms watchdog fed)
+    // Keep sending command every 200ms while held to keep ESP32 watchdog fed
     heartbeatTimerRef.current = setInterval(() => {
       sendRaw(wireCmd);
     }, 200);
@@ -201,177 +177,133 @@ export default function PhysicalRobotConsole() {
   }, [startMoving, stopMoving]);
 
   // -------------------------------------------------------------
-  // 2. Direct Local Wi-Fi WebSocket Connection
+  // 2. Bluetooth Connection Management via Transport Abstraction
   // -------------------------------------------------------------
-  const connectRobot = useCallback(() => {
-    const cleanIp = robotIp.trim();
-    if (!cleanIp) {
-      setLastError('Please enter the ESP32 Robot local IP address (e.g. 192.168.4.2).');
-      return;
-    }
-
-    // Persist in localStorage for convenience
-    localStorage.setItem('aqua_shield_robot_ip', cleanIp);
-
-    // Mark user-initiated connection intent
-    autoReconnectRef.current = true;
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-
-    if (wsRef.current) {
-      try {
-        wsRef.current.close();
-      } catch {
-        // ignore
-      }
-      wsRef.current = null;
-    }
-
+  const connectRobot = useCallback(async () => {
     setIsConnecting(true);
     setLastError('');
-
-    const targetUrl = `ws://${cleanIp}:${robotPort.trim()}/ws`;
-
     try {
-      const ws = new WebSocket(targetUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        setIsConnecting(false);
-        setIsRobotConnected(true);
-        setLastError('');
-        // Ensure robot boots in STOP state
-        ws.send('S');
-        setRawLogs((prev) => [
-          ...prev.slice(-40),
-          `[SYSTEM] Connected to ESP32 Robot at ${targetUrl}`,
-        ]);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-
-          if (msg.type === 'telemetry') {
-            setTelemetry({
-              voltage: typeof msg.voltage === 'number' ? msg.voltage : 0,
-              current: typeof msg.current === 'number' ? msg.current : 0,
-              gas: typeof msg.gas === 'number' ? msg.gas : 0,
-              distance: typeof msg.distance === 'number' ? msg.distance : 0,
-              accelX: msg.accel?.x ?? 0,
-              accelY: msg.accel?.y ?? 0,
-              accelZ: msg.accel?.z ?? 0,
-              timestamp: Date.now(),
-            });
-            setTelemetryHistory((prev) => [
-              ...prev.slice(-19),
-              { time: new Date().toLocaleTimeString(), ...msg },
-            ]);
-            setRawLogs((prev) => [
-              ...prev.slice(-40),
-              `[TELEMETRY] V=${msg.voltage}V | I=${msg.current}mA | Gas=${msg.gas} | Dist=${msg.distance === -1 ? 'OUT_OF_RANGE' : msg.distance + 'cm'} | Accel=[${msg.accel?.x},${msg.accel?.y},${msg.accel?.z}]`,
-            ]);
-          } else if (msg.type === 'status') {
-            const reasonStr = msg.reset_reason === 1 ? 'POWER_ON' :
-              msg.reset_reason === 12 ? 'BROWNOUT (Motor Voltage Dip!)' :
-                msg.reset_reason === 3 ? 'SW_RESET' :
-                  msg.reset_reason === 6 ? 'PANIC / CRASH' :
-                    `CODE_${msg.reset_reason}`;
-            setRawLogs((prev) => [
-              ...prev.slice(-40),
-              `[STATUS] Robot IP: ${msg.ip} | Reset Reason: ${reasonStr} | Wi-Fi: ${msg.wifi ? 'CONNECTED' : 'DISCONNECTED'}`,
-            ]);
-            if (msg.reset_reason === 12) {
-              setLastError('CRITICAL: ESP32 Brownout detected! Motors caused voltage dip. Add 1000uF capacitor across 5V or separate motor battery.');
-            }
-          }
-        } catch {
-          // If raw text or debug message
-          setRawLogs((prev) => [...prev.slice(-40), String(event.data)]);
-        }
-      };
-
-      ws.onclose = () => {
-        setIsConnecting(false);
-        setIsRobotConnected(false);
-        stopMoving();
-        wsRef.current = null;
-
-        if (autoReconnectRef.current) {
-          setRawLogs((prev) => [
-            ...prev.slice(-40),
-            `[SYSTEM] Disconnected from ESP32 Robot. Auto-reconnecting in 1.5s...`,
-          ]);
-          if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-          reconnectTimeoutRef.current = setTimeout(() => {
-            if (autoReconnectRef.current) {
-              connectRobotRef.current?.();
-            }
-          }, 1500);
-        } else {
-          setRawLogs((prev) => [
-            ...prev.slice(-40),
-            `[SYSTEM] Disconnected from ESP32 Robot`,
-          ]);
-        }
-      };
-
-      ws.onerror = () => {
-        setIsConnecting(false);
-        setIsRobotConnected(false);
-        stopMoving();
-        setLastError(
-          `Unable to connect to ${targetUrl}. Confirm that your laptop is on the SAME Wi-Fi network as the ESP32 robot and the IP address is correct.`
-        );
-      };
+      await robotComm.connect({ port: selectedBridgePort });
     } catch (err) {
       setIsConnecting(false);
-      setLastError(`Connection failed: ${err.message}`);
+      setLastError(err.message || 'Bluetooth connection failed');
     }
-  }, [robotIp, robotPort, sendRaw, stopMoving]);
-  connectRobotRef.current = connectRobot;
+  }, [selectedBridgePort]);
 
-  const disconnectRobot = useCallback(() => {
-    autoReconnectRef.current = false;
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
+  const disconnectRobot = useCallback(async () => {
     stopMoving();
-    if (wsRef.current) {
-      try {
-        wsRef.current.close();
-      } catch {
-        // ignore
-      }
-      wsRef.current = null;
+    setIsConnecting(false);
+    try {
+      await robotComm.disconnect();
+    } catch (err) {
+      console.error(err);
     }
     setIsRobotConnected(false);
-    setIsConnecting(false);
   }, [stopMoving]);
+
+  const toggleTransportMode = useCallback(async (newMode) => {
+    if (isRobotConnected) {
+      await disconnectRobot();
+    }
+    robotComm.setTransportMode(newMode);
+    setTransportMode(newMode);
+    if (newMode === 'bridge') {
+      try {
+        const ports = await robotComm.fetchBridgePorts();
+        setBridgePorts(ports);
+        if (ports.length > 0 && !selectedBridgePort) {
+          const bt = ports.find((p) => p.isBluetooth);
+          setSelectedBridgePort(bt ? bt.path : ports[0].path);
+        }
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+  }, [disconnectRobot, isRobotConnected, selectedBridgePort]);
+
+  const refreshBridgePorts = useCallback(async () => {
+    try {
+      const ports = await robotComm.fetchBridgePorts();
+      setBridgePorts(ports);
+      if (ports.length > 0) {
+        const bt = ports.find((p) => p.isBluetooth);
+        setSelectedBridgePort(bt ? bt.path : ports[0].path);
+      }
+    } catch (err) {
+      setLastError(`Could not fetch COM ports: ${err.message}`);
+    }
+  }, []);
+
+  // Listen to robotComm events (Telemetry, Status, Logs, Ports)
+  useEffect(() => {
+    const unsubTelemetry = robotComm.on('telemetry', (data) => {
+      setTelemetry(data);
+      setTelemetryHistory((prev) => [
+        ...prev.slice(-19),
+        { time: new Date().toLocaleTimeString(), ...data },
+      ]);
+    });
+
+    const unsubStatus = robotComm.on('status', (status) => {
+      setIsRobotConnected(Boolean(status.connected));
+      setIsVerifying(Boolean(status.verifying));
+      if (status.connected) {
+        setIsConnecting(false);
+        setIsVerifying(false);
+        setLastError('');
+        setConnectedPortName(status.port || 'ESP32_Robot_BT');
+      } else if (status.verifying) {
+        setIsConnecting(true);
+        setIsVerifying(true);
+        setConnectedPortName(status.port || 'ESP32_Robot_BT');
+      } else {
+        setIsConnecting(false);
+        setIsVerifying(false);
+        setConnectedPortName('');
+        if (status.error) {
+          setLastError(status.error);
+        }
+        setTelemetry({
+          voltage: 0,
+          current: 0,
+          gas: 0,
+          distance: 0,
+          accelX: 0,
+          accelY: 0,
+          accelZ: 0,
+          timestamp: null,
+        });
+        stopMoving();
+      }
+    });
+
+    const unsubLog = robotComm.on('log', (msg) => {
+      setRawLogs((prev) => [...prev.slice(-40), msg]);
+    });
+
+    const unsubPorts = robotComm.on('ports', (ports) => {
+      setBridgePorts(ports || []);
+      if (ports && ports.length > 0 && !selectedBridgePort) {
+        const bt = ports.find((p) => p.isBluetooth);
+        setSelectedBridgePort(bt ? bt.path : ports[0].path);
+      }
+    });
+
+    return () => {
+      unsubTelemetry();
+      unsubStatus();
+      unsubLog();
+      unsubPorts();
+    };
+  }, [selectedBridgePort, stopMoving]);
 
   // Clean up on unmount
   useEffect(() => {
     return () => {
-      autoReconnectRef.current = false;
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
       if (heartbeatTimerRef.current) {
         clearInterval(heartbeatTimerRef.current);
       }
-      if (wsRef.current) {
-        try {
-          if (wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ command: 'S' }));
-          }
-          wsRef.current.close();
-        } catch {
-          // ignore
-        }
-      }
+      robotComm.disconnect().catch(() => {});
     };
   }, []);
 
@@ -512,13 +444,31 @@ export default function PhysicalRobotConsole() {
         {/* Status Indicators */}
         <div className="flex flex-wrap items-center gap-3">
 
-          {/* Robot Connection Status */}
-          <div className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-full border text-xs font-mono font-bold transition-all ${isRobotConnected
+          {/* Bluetooth Connection Status */}
+          <div className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-full border text-xs font-mono font-bold transition-all ${
+            isRobotConnected
               ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-              : 'bg-red-950/70 border-red-500 text-red-300'
-            }`}>
-            <span className={`w-2.5 h-2.5 rounded-full ${isRobotConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}`}></span>
-            <span>Robot: {isRobotConnected ? `● Connected (${robotIp}:${robotPort})` : '● Disconnected'}</span>
+              : isVerifying || isConnecting
+                ? 'bg-amber-950/80 border-amber-500 text-amber-300 animate-pulse shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                : 'bg-red-950/70 border-red-500 text-red-300'
+          }`}>
+            <span className={`w-2.5 h-2.5 rounded-full ${
+              isRobotConnected 
+                ? 'bg-emerald-400 animate-pulse' 
+                : isVerifying || isConnecting 
+                  ? 'bg-amber-400 animate-ping' 
+                  : 'bg-red-500'
+            }`}></span>
+            <Bluetooth className="w-3.5 h-3.5 text-cyan-400" />
+            <span>
+              Bluetooth: {
+                isRobotConnected 
+                  ? `● Connected (${connectedPortName || 'ESP32_Robot_BT'})` 
+                  : isVerifying || isConnecting 
+                    ? `● Verifying Robot... (${connectedPortName || selectedBridgePort || 'COM'})`
+                    : '● Disconnected'
+              }
+            </span>
           </div>
 
           {/* Camera Connection Status */}
@@ -562,46 +512,91 @@ export default function PhysicalRobotConsole() {
 
         </div>
 
-        {/* Local Wi-Fi Connection UI */}
+        {/* Bluetooth Connection Controls */}
         <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-          <div className="flex items-center space-x-1.5 bg-slate-900 px-3 py-2 rounded-xl border border-slate-700 font-mono text-xs">
-            <Wifi className="w-4 h-4 text-cyan-400 shrink-0" />
-            <span className="text-slate-400 font-bold">Robot IP:</span>
-            <input
-              type="text"
-              value={robotIp}
-              onChange={(e) => setRobotIp(e.target.value)}
+          {/* Transport Mode Switcher */}
+          <div className="flex items-center bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-700 font-mono text-xs">
+            <span className="text-slate-400 mr-2 font-bold">Mode:</span>
+            <button
+              type="button"
+              onClick={() => toggleTransportMode('webserial')}
+              disabled={isRobotConnected || !robotComm.isWebSerialSupported()}
+              className={`px-2 py-1 rounded text-[11px] font-bold transition-all ${
+                transportMode === 'webserial'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50'
+                  : 'text-slate-400 hover:text-white disabled:opacity-30'
+              }`}
+              title={robotComm.isWebSerialSupported() ? 'Direct In-Browser Bluetooth via Web Serial API' : 'Web Serial not supported in this browser'}
+            >
+              Direct (Web Serial)
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleTransportMode('bridge')}
               disabled={isRobotConnected}
-              placeholder="192.168.4.2"
-              className="w-32 bg-slate-950 px-2 py-1 rounded border border-slate-700 text-white font-mono font-bold focus:border-cyan-400 focus:outline-none disabled:opacity-60"
-            />
-            <span className="text-slate-500">:</span>
-            <input
-              type="text"
-              value={robotPort}
-              onChange={(e) => setRobotPort(e.target.value)}
-              disabled={isRobotConnected}
-              placeholder="81"
-              className="w-12 bg-slate-950 px-1.5 py-1 rounded border border-slate-700 text-cyan-300 font-mono font-bold focus:border-cyan-400 focus:outline-none disabled:opacity-60 text-center"
-            />
+              className={`ml-1 px-2 py-1 rounded text-[11px] font-bold transition-all ${
+                transportMode === 'bridge'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Desktop Bridge Mode (ws://localhost:5001)"
+            >
+              Bridge Server
+            </button>
           </div>
 
+          {/* Bridge COM Port Selector (Only visible in Bridge mode) */}
+          {transportMode === 'bridge' && (
+            <div className="flex items-center space-x-1 bg-slate-900 px-2 py-1.5 rounded-xl border border-slate-700 font-mono text-xs">
+              <select
+                value={selectedBridgePort}
+                onChange={(e) => setSelectedBridgePort(e.target.value)}
+                disabled={isRobotConnected}
+                className="bg-slate-950 text-white px-2 py-1 rounded border border-slate-700 text-xs font-mono font-bold focus:outline-none focus:border-cyan-400 max-w-[140px]"
+              >
+                {bridgePorts.length === 0 ? (
+                  <option value="">No COM Ports</option>
+                ) : (
+                  bridgePorts.map((p) => (
+                    <option key={p.path} value={p.path}>
+                      {p.friendlyName || p.path} {p.isBluetooth ? '⚡ (BT)' : ''}
+                    </option>
+                  ))
+                )}
+              </select>
+              <button
+                type="button"
+                onClick={refreshBridgePorts}
+                disabled={isRobotConnected}
+                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white"
+                title="Refresh COM Ports"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Connect / Disconnect Action Button */}
           {isRobotConnected ? (
             <button
+              type="button"
               onClick={disconnectRobot}
-              className="px-4 py-2.5 rounded-xl bg-red-950 hover:bg-red-900 border border-red-700 text-red-200 hover:text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-all shadow-md"
+              className="px-4 py-2 rounded-xl bg-red-950 hover:bg-red-900 border border-red-700 text-red-200 hover:text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-all shadow-md"
             >
               <Power className="w-4 h-4" />
-              <span>Disconnect</span>
+              <span>Disconnect BT</span>
             </button>
           ) : (
             <button
+              type="button"
               onClick={connectRobot}
-              disabled={isConnecting || !robotIp.trim()}
-              className="px-5 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-mono font-black flex items-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(6,182,212,0.4)] disabled:opacity-50 hover:scale-105"
+              disabled={isConnecting || isVerifying}
+              className="px-5 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-mono font-black flex items-center space-x-1.5 transition-all shadow-[0_0_15px_rgba(6,182,212,0.4)] disabled:opacity-50 hover:scale-105"
             >
-              <Wifi className="w-4 h-4" />
-              <span>{isConnecting ? 'Connecting...' : 'CONNECT'}</span>
+              <Bluetooth className="w-4 h-4" />
+              <span>
+                {isVerifying ? 'Verifying Robot...' : isConnecting ? 'Opening Port...' : transportMode === 'webserial' ? 'CONNECT BLUETOOTH' : 'CONNECT VIA BRIDGE'}
+              </span>
             </button>
           )}
         </div>
@@ -960,6 +955,35 @@ export default function PhysicalRobotConsole() {
             </div>
           )}
 
+          {/* OFFLINE GUIDANCE BANNER WHEN NOT CONNECTED */}
+          {!isRobotConnected && (
+            <div className="mb-3 p-3 rounded-xl bg-amber-950/60 border-2 border-amber-500/80 text-amber-200 text-xs font-mono flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-lg">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+                <span>
+                  {isVerifying ? (
+                    <>
+                      <strong>VERIFYING PHYSICAL LINK:</strong> Port opened. Waiting for telemetry from ESP32. <em>Ensure robot power switch is ON.</em>
+                    </>
+                  ) : (
+                    <>
+                      <strong>ROBOT DISCONNECTED:</strong> Telemetry is offline. Ensure robot power is <strong>ON</strong>, then click <span className="text-cyan-300 font-bold">CONNECT BLUETOOTH</span>.
+                    </>
+                  )}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={connectRobot}
+                disabled={isConnecting || isVerifying}
+                className="px-3 py-1.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-[11px] font-mono font-black flex items-center space-x-1 transition-all shadow-[0_0_12px_rgba(6,182,212,0.4)] shrink-0 disabled:opacity-50"
+              >
+                <Bluetooth className="w-3.5 h-3.5" />
+                <span>{isVerifying ? 'Verifying...' : isConnecting ? 'Opening...' : 'Connect Now'}</span>
+              </button>
+            </div>
+          )}
+
           {/* TELEMETRY TILES GRID (6 CARDS) */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 my-1">
 
@@ -972,13 +996,13 @@ export default function PhysicalRobotConsole() {
 
               <div className="my-1.5">
                 <span className="text-2xl sm:text-3xl font-black font-mono text-white">
-                  {telemetry.voltage.toFixed(2)}
+                  {isRobotConnected && telemetry.timestamp ? telemetry.voltage.toFixed(2) : '--'}
                 </span>
-                <span className="text-xs font-mono text-cyan-400 ml-1">V</span>
+                <span className="text-xs font-mono text-cyan-400 ml-1">{isRobotConnected && telemetry.timestamp ? 'V' : ''}</span>
               </div>
 
               <div className="text-[9px] font-mono text-slate-400">
-                INA219 Li-ion Pack (3S)
+                Raw Bus Voltage • Battery % N/A
               </div>
             </div>
 
@@ -1000,9 +1024,9 @@ export default function PhysicalRobotConsole() {
               <div className="my-1.5">
                 <span className={`text-2xl sm:text-3xl font-black font-mono ${isCurrentCritical ? 'text-red-400' : isCurrentWarning ? 'text-amber-300' : 'text-white'
                   }`}>
-                  {telemetry.current.toFixed(1)}
+                  {isRobotConnected && telemetry.timestamp ? telemetry.current.toFixed(1) : '--'}
                 </span>
-                <span className="text-xs font-mono text-cyan-400 ml-1">mA</span>
+                <span className="text-xs font-mono text-cyan-400 ml-1">{isRobotConnected && telemetry.timestamp ? 'mA' : ''}</span>
               </div>
 
               <div className="space-y-1">
@@ -1038,9 +1062,9 @@ export default function PhysicalRobotConsole() {
               <div className="my-1.5">
                 <span className={`text-2xl sm:text-3xl font-black font-mono ${isGasCritical ? 'text-red-400' : isGasWarning ? 'text-amber-300' : 'text-white'
                   }`}>
-                  {telemetry.gas}
+                  {isRobotConnected && telemetry.timestamp ? telemetry.gas : '--'}
                 </span>
-                <span className="text-[10px] font-mono text-slate-400 ml-1">RAW</span>
+                <span className="text-[10px] font-mono text-slate-400 ml-1">{isRobotConnected && telemetry.timestamp ? 'RAW' : ''}</span>
               </div>
 
               <div className="space-y-1">
@@ -1078,9 +1102,9 @@ export default function PhysicalRobotConsole() {
               <div className="my-1.5">
                 <span className={`text-2xl sm:text-3xl font-black font-mono ${isDistanceCritical ? 'text-red-400' : isDistanceWarning ? 'text-amber-300' : 'text-white'
                   }`}>
-                  {telemetry.distance === -1 ? '--' : telemetry.distance}
+                  {isRobotConnected && telemetry.timestamp ? (telemetry.distance === -1 ? '--' : telemetry.distance) : '--'}
                 </span>
-                <span className="text-xs font-mono text-cyan-400 ml-1">{telemetry.distance === -1 ? '' : 'cm'}</span>
+                <span className="text-xs font-mono text-cyan-400 ml-1">{isRobotConnected && telemetry.timestamp && telemetry.distance !== -1 ? 'cm' : ''}</span>
               </div>
 
               <div className="space-y-1">
@@ -1114,10 +1138,10 @@ export default function PhysicalRobotConsole() {
               </div>
               <div className="my-1.5 font-mono">
                 <div className="text-sm font-bold text-white">
-                  X: <span className="text-cyan-300">{telemetry.accelX.toFixed(1)}</span> m/s²
+                  X: <span className="text-cyan-300">{isRobotConnected && telemetry.timestamp ? telemetry.accelX.toFixed(1) : '--'}</span> {isRobotConnected && telemetry.timestamp ? 'm/s²' : ''}
                 </div>
                 <div className="text-sm font-bold text-white mt-0.5">
-                  Y: <span className="text-cyan-300">{telemetry.accelY.toFixed(1)}</span> m/s²
+                  Y: <span className="text-cyan-300">{isRobotConnected && telemetry.timestamp ? telemetry.accelY.toFixed(1) : '--'}</span> {isRobotConnected && telemetry.timestamp ? 'm/s²' : ''}
                 </div>
               </div>
               <div className="text-[9px] font-mono text-slate-400">
@@ -1133,9 +1157,9 @@ export default function PhysicalRobotConsole() {
               </div>
               <div className="my-1.5">
                 <span className="text-2xl sm:text-3xl font-black font-mono text-white">
-                  {telemetry.accelZ.toFixed(1)}
+                  {isRobotConnected && telemetry.timestamp ? telemetry.accelZ.toFixed(1) : '--'}
                 </span>
-                <span className="text-xs font-mono text-cyan-400 ml-1">m/s²</span>
+                <span className="text-xs font-mono text-cyan-400 ml-1">{isRobotConnected && telemetry.timestamp ? 'm/s²' : ''}</span>
               </div>
               <div className="text-[9px] font-mono text-slate-400">
                 MPU6050 Vertical Axis
@@ -1147,7 +1171,7 @@ export default function PhysicalRobotConsole() {
           {/* TELEMETRY DIAGNOSTIC FOOTER */}
           <div className="mt-3 p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 flex items-center justify-between text-xs font-mono">
             <span className="text-slate-400">
-              STREAM: <strong className="text-cyan-300">ESP32 Local Wi-Fi (ws://{robotIp}:{robotPort})</strong>
+              TRANSPORT: <strong className="text-cyan-300">Bluetooth Classic Serial ({connectedPortName || 'ESP32_Robot_BT'})</strong>
             </span>
             <button
               onClick={() => setShowRawLogs(!showRawLogs)}
@@ -1172,7 +1196,7 @@ export default function PhysicalRobotConsole() {
         <div className="mt-6 p-4 sm:p-5 rounded-2xl bg-black border-2 border-cyan-500/40 font-mono text-xs shadow-2xl">
           <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
             <span className="text-cyan-300 font-bold flex items-center gap-2 text-sm">
-              <Terminal className="w-4 h-4" /> LIVE ESP32 WEBSOCKET TELEMETRY BUFFER
+              <Terminal className="w-4 h-4" /> LIVE ESP32 BLUETOOTH TELEMETRY BUFFER
             </span>
             <span className="text-[11px] text-slate-500">JSON Stream</span>
           </div>

@@ -13,7 +13,11 @@ const PORT = process.env.PORT || 5001;
 let currentPort = null;
 let currentPortPath = null;
 let isConnected = false;
+let isPortOpen = false;
 let lastTelemetry = null;
+let lastDataReceivedTime = 0;
+let handshakeTimeoutTimer = null;
+let livenessWatchdogTimer = null;
 
 // Telemetry parsing buffer
 let telemetryBuffer = {
@@ -74,12 +78,14 @@ const server = http.createServer(async (req, res) => {
 
   // 2. GET /api/status - current connection status & last telemetry
   if (reqUrl.pathname === '/api/status') {
+    const isRobotAlive = isConnected && (Date.now() - lastDataReceivedTime < 4000);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       success: true,
-      connected: isConnected,
+      connected: isRobotAlive,
+      verifying: !isRobotAlive && isPortOpen,
       port: currentPortPath,
-      lastTelemetry,
+      lastTelemetry: isRobotAlive ? lastTelemetry : null,
       clientsCount: wss.clients.size,
     }));
     return;
@@ -170,12 +176,14 @@ wss.on('error', (err) => {
 wss.on('connection', (ws) => {
   console.log(`[WebSocket] Client connected. Total clients: ${wss.clients.size}`);
 
+  const isRobotAlive = isConnected && (Date.now() - lastDataReceivedTime < 4000);
   // Send initial state
   ws.send(JSON.stringify({
     type: 'status',
-    connected: isConnected,
+    connected: isRobotAlive,
+    verifying: !isRobotAlive && isPortOpen,
     port: currentPortPath,
-    lastTelemetry,
+    lastTelemetry: isRobotAlive ? lastTelemetry : null,
   }));
 
   ws.on('message', (message) => {
@@ -262,10 +270,52 @@ function sendCommand(cmd) {
   }
 }
 
+function markRobotOnline() {
+  lastDataReceivedTime = Date.now();
+  if (!isConnected) {
+    console.log(`[Serial] Physical robot verified ONLINE on ${currentPortPath}!`);
+    isConnected = true;
+    if (handshakeTimeoutTimer) {
+      clearTimeout(handshakeTimeoutTimer);
+      handshakeTimeoutTimer = null;
+    }
+    broadcast({
+      type: 'status',
+      connected: true,
+      verifying: false,
+      port: currentPortPath,
+      message: `Robot online and communicating on ${currentPortPath}`,
+    });
+    startLivenessWatchdog();
+  }
+}
+
+function startLivenessWatchdog() {
+  if (livenessWatchdogTimer) clearInterval(livenessWatchdogTimer);
+  livenessWatchdogTimer = setInterval(() => {
+    if (isConnected && currentPort && currentPort.isOpen) {
+      const elapsed = Date.now() - lastDataReceivedTime;
+      if (elapsed > 4000) {
+        console.warn(`[Watchdog] No data received from robot for ${elapsed}ms. Robot powered off or signal lost.`);
+        disconnectPort('Robot signal lost. Ensure robot power is ON and battery is charged.');
+      }
+    }
+  }, 1000);
+}
+
 function connectToPort(portPath) {
   const openNewPort = () => {
     console.log(`[Serial] Opening port ${portPath} @ 115200 baud...`);
     currentPortPath = portPath;
+
+    if (handshakeTimeoutTimer) {
+      clearTimeout(handshakeTimeoutTimer);
+      handshakeTimeoutTimer = null;
+    }
+    if (livenessWatchdogTimer) {
+      clearInterval(livenessWatchdogTimer);
+      livenessWatchdogTimer = null;
+    }
 
     try {
       currentPort = new SerialPort({
@@ -277,68 +327,86 @@ function connectToPort(portPath) {
       currentPort.open((err) => {
         if (err) {
           console.error(`[Serial] Failed to open ${portPath}:`, err.message);
+          isPortOpen = false;
           isConnected = false;
           broadcast({
             type: 'status',
             connected: false,
+            verifying: false,
             port: portPath,
             error: `Failed to open ${portPath}: ${err.message}`,
           });
           return;
         }
 
-        console.log(`[Serial] Successfully connected to ${portPath}!`);
-        isConnected = true;
+        console.log(`[Serial] Port ${portPath} opened. Awaiting physical robot handshake...`);
+        isPortOpen = true;
+        isConnected = false; // NOT connected until physical robot transmits telemetry/handshake!
         rawLineBuffer = '';
         isCapturingTelemetry = false;
 
-        // Ensure robot starts in safe STOP state
-        setTimeout(() => {
-          sendCommand('S');
-        }, 300);
-
+        // Broadcast intermediate "verifying" state so user sees feedback
         broadcast({
           type: 'status',
-          connected: true,
+          connected: false,
+          verifying: true,
           port: portPath,
+          message: `Port ${portPath} opened. Waiting for robot response (ensure robot is ON)...`,
         });
+
+        // Send probe ping 'P' and stop 'S' to query ESP32
+        setTimeout(() => {
+          if (currentPort && currentPort.isOpen) {
+            currentPort.write('P\n');
+            setTimeout(() => {
+              if (currentPort && currentPort.isOpen) {
+                currentPort.write('S\n');
+              }
+            }, 250);
+          }
+        }, 200);
+
+        // Handshake verification timer:
+        // Robot sends telemetry every 1000ms. If within 4000ms no data arrives from the robot,
+        // it means the robot is powered OFF or unreachable!
+        handshakeTimeoutTimer = setTimeout(() => {
+          if (isPortOpen && !isConnected) {
+            console.warn(`[Serial] Handshake timeout on ${portPath}. No data received from robot.`);
+            disconnectPort(
+              `Robot is not responding on ${portPath}. Please ensure the robot power switch is ON, battery is charged, and ESP32 is in range.`
+            );
+          }
+        }, 4000);
       });
 
       currentPort.on('data', (chunk) => {
         handleSerialData(chunk);
       });
 
-    currentPort.on('error', (err) => {
-      console.error(`[Serial] Port error:`, err.message);
+      currentPort.on('error', (err) => {
+        console.error(`[Serial] Port error:`, err.message);
+        disconnectPort(`Serial port error: ${err.message}`);
+      });
+
+      currentPort.on('close', () => {
+        console.log(`[Serial] Port ${currentPortPath} closed`);
+        if (isConnected || isPortOpen) {
+          disconnectPort('Serial port closed');
+        }
+      });
+
+    } catch (err) {
+      console.error(`[Serial] Exception creating SerialPort:`, err);
+      isPortOpen = false;
       isConnected = false;
       broadcast({
         type: 'status',
         connected: false,
-        port: currentPortPath,
+        verifying: false,
+        port: portPath,
         error: err.message,
       });
-    });
-
-    currentPort.on('close', () => {
-      console.log(`[Serial] Port ${currentPortPath} closed`);
-      isConnected = false;
-      broadcast({
-        type: 'status',
-        connected: false,
-        port: currentPortPath,
-      });
-    });
-
-  } catch (err) {
-    console.error(`[Serial] Exception creating SerialPort:`, err);
-    isConnected = false;
-    broadcast({
-      type: 'status',
-      connected: false,
-      port: portPath,
-      error: err.message,
-    });
-  }
+    }
   };
 
   if (currentPort && currentPort.isOpen) {
@@ -359,26 +427,45 @@ function connectToPort(portPath) {
 /**
  * Safely disconnect from COM port
  */
-function disconnectPort() {
-  if (currentPort && currentPort.isOpen) {
-    console.log(`[Serial] Safely disconnecting from ${currentPortPath}...`);
-    sendCommand('S');
-    setTimeout(() => {
-      try {
-        currentPort.close();
-      } catch (err) {
-        console.error('[Serial] Close error:', err);
-      }
-      currentPort = null;
-      currentPortPath = null;
-      isConnected = false;
-      broadcast({
-        type: 'status',
-        connected: false,
-        port: null,
-      });
-    }, 100);
+function disconnectPort(errorMessage = '') {
+  if (handshakeTimeoutTimer) {
+    clearTimeout(handshakeTimeoutTimer);
+    handshakeTimeoutTimer = null;
   }
+  if (livenessWatchdogTimer) {
+    clearInterval(livenessWatchdogTimer);
+    livenessWatchdogTimer = null;
+  }
+
+  const prevPort = currentPortPath;
+  const wasConnected = isConnected;
+
+  if (currentPort) {
+    console.log(`[Serial] Safely disconnecting from ${prevPort || 'port'}...`);
+    try {
+      if (currentPort.isOpen) {
+        currentPort.write('S');
+        currentPort.close();
+      }
+    } catch (err) {
+      console.error('[Serial] Close error:', err.message);
+    }
+    currentPort = null;
+  }
+
+  currentPortPath = null;
+  isPortOpen = false;
+  isConnected = false;
+  lastTelemetry = null;
+  lastDataReceivedTime = 0;
+
+  broadcast({
+    type: 'status',
+    connected: false,
+    verifying: false,
+    port: null,
+    error: errorMessage || (wasConnected ? 'Robot disconnected' : ''),
+  });
 }
 
 /**
@@ -397,6 +484,41 @@ function handleSerialData(chunk) {
     // Optional raw debug broadcast
     broadcast({ type: 'raw', text: trimmed });
 
+    // Any valid line from the robot confirms physical link!
+    markRobotOnline();
+
+    // 1. Direct Machine-Readable JSON Telemetry Parser (New Bluetooth Architecture)
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed.type === 'telemetry') {
+          lastTelemetry = {
+            voltage: typeof parsed.voltage === 'number' ? parsed.voltage : 0,
+            current: typeof parsed.current === 'number' ? parsed.current : 0,
+            gas: typeof parsed.gas === 'number' ? parsed.gas : 0,
+            distance: typeof parsed.distance === 'number' ? parsed.distance : -1,
+            accelX: parsed.accel?.x ?? 0,
+            accelY: parsed.accel?.y ?? 0,
+            accelZ: parsed.accel?.z ?? 0,
+            command: parsed.command || 'S',
+            moving: Boolean(parsed.moving),
+            timestamp: Date.now(),
+          };
+          broadcast({
+            type: 'telemetry',
+            data: lastTelemetry,
+          });
+          continue;
+        } else {
+          broadcast(parsed);
+          continue;
+        }
+      } catch {
+        // Fall through to legacy parser if JSON parsing fails
+      }
+    }
+
+    // 2. Legacy Human-Readable Block Fallback
     if (trimmed.includes('--- TELEMETRY DATA ---')) {
       isCapturingTelemetry = true;
       telemetryBuffer = {
