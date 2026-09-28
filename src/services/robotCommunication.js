@@ -267,19 +267,27 @@ export class WebSerialBluetoothTransport extends EventEmitter {
       // Any valid data received from the robot proves physical connection!
       this._markRobotOnline();
 
-      // Parse JSON telemetry line
+      // 1. Parse JSON telemetry line
       if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
         try {
           const parsed = JSON.parse(trimmed);
           if (parsed.type === 'telemetry') {
+            const g1 = typeof parsed.gas1 === 'number' ? parsed.gas1 : (typeof parsed.gas === 'number' ? parsed.gas : 0);
+            const g2 = typeof parsed.gas2 === 'number' ? parsed.gas2 : (typeof parsed.gas === 'number' ? parsed.gas : 0);
+            const temp = typeof parsed.temperature === 'number' ? parsed.temperature : (typeof parsed.probeTemp === 'number' ? parsed.probeTemp : null);
+
             this.emit('telemetry', {
               voltage: typeof parsed.voltage === 'number' ? parsed.voltage : 0,
               current: typeof parsed.current === 'number' ? parsed.current : 0,
-              gas: typeof parsed.gas === 'number' ? parsed.gas : 0,
+              gas: Math.max(g1, g2),
+              gas1: g1,
+              gas2: g2,
+              temperature: temp,
+              probeTemp: temp,
               distance: typeof parsed.distance === 'number' ? parsed.distance : -1,
-              accelX: parsed.accel?.x ?? 0,
-              accelY: parsed.accel?.y ?? 0,
-              accelZ: parsed.accel?.z ?? 0,
+              accelX: parsed.accel?.x ?? (parsed.accelX ?? 0),
+              accelY: parsed.accel?.y ?? (parsed.accelY ?? 0),
+              accelZ: parsed.accel?.z ?? (parsed.accelZ ?? 0),
               command: parsed.command || 'S',
               moving: Boolean(parsed.moving),
               timestamp: Date.now(),
@@ -288,6 +296,40 @@ export class WebSerialBluetoothTransport extends EventEmitter {
           }
         } catch {
           // Non-JSON debug output
+        }
+      }
+
+      // 2. Parse CSV telemetry line (distance,gas1,gas2,probeTemp,voltage,current,ax,ay,az)
+      if (trimmed.includes(',')) {
+        const parts = trimmed.split(',');
+        if (parts.length >= 7 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1]))) {
+          const distance = parseFloat(parts[0]);
+          const gas1 = parseInt(parts[1], 10) || 0;
+          const gas2 = parts.length >= 8 ? (parseInt(parts[2], 10) || 0) : gas1;
+          const probeTemp = parts.length >= 9 ? parseFloat(parts[3]) : null;
+          const voltageIdx = parts.length >= 9 ? 4 : 2;
+          const currentIdx = parts.length >= 9 ? 5 : 3;
+          const axIdx = parts.length >= 9 ? 6 : 4;
+          const ayIdx = parts.length >= 9 ? 7 : 5;
+          const azIdx = parts.length >= 9 ? 8 : 6;
+
+          this.emit('telemetry', {
+            distance: isNaN(distance) ? -1 : distance,
+            gas1: gas1,
+            gas2: gas2,
+            gas: Math.max(gas1, gas2),
+            temperature: probeTemp !== null && !isNaN(probeTemp) ? probeTemp : null,
+            probeTemp: probeTemp !== null && !isNaN(probeTemp) ? probeTemp : null,
+            voltage: parseFloat(parts[voltageIdx]) || 0,
+            current: parseFloat(parts[currentIdx]) || 0,
+            accelX: parseFloat(parts[axIdx]) || 0,
+            accelY: parseFloat(parts[ayIdx]) || 0,
+            accelZ: parseFloat(parts[azIdx]) || 0,
+            command: 'S',
+            moving: false,
+            timestamp: Date.now(),
+          });
+          continue;
         }
       }
     }

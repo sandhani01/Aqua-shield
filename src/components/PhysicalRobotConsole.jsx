@@ -17,7 +17,11 @@ import {
   ChevronUp,
   Power,
   Compass,
-  Bluetooth
+  Bluetooth,
+  Thermometer,
+  Flame,
+  Sun,
+  Radio
 } from 'lucide-react';
 import robotComm from '../services/robotCommunication';
 
@@ -56,6 +60,10 @@ export default function PhysicalRobotConsole() {
     voltage: 0,
     current: 0,
     gas: 0,
+    gas1: 0,
+    gas2: 0,
+    temperature: null,
+    probeTemp: null,
     distance: 0,
     accelX: 0,
     accelY: 0,
@@ -65,7 +73,7 @@ export default function PhysicalRobotConsole() {
   const [telemetryHistory, setTelemetryHistory] = useState([]);
   const [rawLogs, setRawLogs] = useState([]);
   const [showRawLogs, setShowRawLogs] = useState(false);
-  // --- Safety Thresholds & Limit Alert Evaluation (Voltage limits removed as requested) ---
+  // --- Safety Thresholds & Limit Alert Evaluation ---
   const [testAlertActive, setTestAlertActive] = useState(false);
 
   // Real-time limit evaluations
@@ -73,16 +81,28 @@ export default function PhysicalRobotConsole() {
   const isCurrentCritical = telemetry.current > 2000 || testAlertActive;
   const isCurrentWarning = telemetry.current > 1400 && telemetry.current <= 2000;
 
-  // 2. Gas Level: Safe < 700 RAW | Hazardous Sewer Gas limit: > 1500 RAW
-  const isGasCritical = telemetry.gas > 1500 || testAlertActive;
-  const isGasWarning = telemetry.gas > 700 && telemetry.gas <= 1500;
+  // 2. Gas Sensor 1 (Pin 34 - Flammable/Combustible Gas): Safe < 700 RAW | Limit: > 1500 RAW
+  const isGas1Critical = (telemetry.gas1 > 1500) || testAlertActive;
+  const isGas1Warning = telemetry.gas1 > 700 && telemetry.gas1 <= 1500;
 
-  // 3. Distance: Safe > 25cm | Collision / Chokepoint limit: <= 15cm
+  // 3. Gas Sensor 2 (Pin 35 - Toxic/Sewer Atmosphere): Safe < 700 RAW | Limit: > 1500 RAW
+  const isGas2Critical = (telemetry.gas2 > 1500) || testAlertActive;
+  const isGas2Warning = telemetry.gas2 > 700 && telemetry.gas2 <= 1500;
+
+  // Combined Gas alert
+  const isGasCritical = isGas1Critical || isGas2Critical;
+  const _isGasWarning = !isGasCritical && (isGas1Warning || isGas2Warning);
+
+  // 4. DS18B20 Water / Probe Temp (°C): Safe 5°C - 38°C | Critical < 0°C or > 50°C
+  const isTempCritical = (telemetry.temperature !== null && (telemetry.temperature > 50 || telemetry.temperature < 0)) || testAlertActive;
+  const isTempWarning = telemetry.temperature !== null && ((telemetry.temperature > 38 && telemetry.temperature <= 50) || (telemetry.temperature >= 0 && telemetry.temperature < 5));
+
+  // 5. Distance: Safe > 25cm | Collision / Chokepoint limit: <= 15cm
   const isDistanceCritical = (telemetry.distance > 0 && telemetry.distance <= 15) || testAlertActive;
   const isDistanceWarning = telemetry.distance > 15 && telemetry.distance <= 25;
 
-  // Global hazard alert flag: Activated when ANY limit is crossed (Current, Gas, or Distance)
-  const hasActiveAlert = isCurrentCritical || isGasCritical || isDistanceCritical;
+  // Global hazard alert flag: Activated when ANY limit is crossed
+  const hasActiveAlert = isCurrentCritical || isGas1Critical || isGas2Critical || isTempCritical || isDistanceCritical;
 
   // --- ESP32-CAM State (Isolated stream) ---
   const [cameraUrl, setCameraUrl] = useState('http://192.168.4.1/stream');
@@ -267,6 +287,10 @@ export default function PhysicalRobotConsole() {
           voltage: 0,
           current: 0,
           gas: 0,
+          gas1: 0,
+          gas2: 0,
+          temperature: null,
+          probeTemp: null,
           distance: 0,
           accelX: 0,
           accelY: 0,
@@ -944,7 +968,9 @@ export default function PhysicalRobotConsole() {
                   LIMIT BREACH DETECTED:{' '}
                   {[
                     isCurrentCritical && `CURRENT (${telemetry.current.toFixed(0)}mA >2000mA Stall)`,
-                    isGasCritical && `GAS (${telemetry.gas} RAW >1500 Toxic)`,
+                    isGas1Critical && `GAS 1 (${telemetry.gas1} RAW >1500 Combustible)`,
+                    isGas2Critical && `GAS 2 (${telemetry.gas2} RAW >1500 Toxic)`,
+                    isTempCritical && telemetry.temperature !== null && `TEMP (${telemetry.temperature.toFixed(1)}°C Thermal Hazard)`,
                     isDistanceCritical && `DISTANCE (${telemetry.distance}cm ≤15cm Collision)`
                   ].filter(Boolean).join(' • ')}
                 </span>
@@ -984,7 +1010,7 @@ export default function PhysicalRobotConsole() {
             </div>
           )}
 
-          {/* TELEMETRY TILES GRID (6 CARDS) */}
+          {/* TELEMETRY TILES GRID (9 SENSOR CARDS) */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 my-1">
 
             {/* 1. BUS VOLTAGE */}
@@ -1002,7 +1028,7 @@ export default function PhysicalRobotConsole() {
               </div>
 
               <div className="text-[9px] font-mono text-slate-400">
-                Raw Bus Voltage • Battery % N/A
+                INA219 Raw Bus Voltage
               </div>
             </div>
 
@@ -1044,47 +1070,137 @@ export default function PhysicalRobotConsole() {
               </div>
             </div>
 
-            {/* 3. GAS LEVEL */}
-            <div className={`p-3 rounded-xl flex flex-col justify-between transition-all ${isGasCritical
+            {/* 3. WATER / PROBE TEMPERATURE (DS18B20) */}
+            <div className={`p-3 rounded-xl flex flex-col justify-between transition-all ${isTempCritical
                 ? 'bg-red-950/80 border-2 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
-                : isGasWarning
+                : isTempWarning
                   ? 'bg-amber-950/40 border border-amber-500/70 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
                   : 'bg-[#06101e] border border-cyan-500/30 hover:border-cyan-400'
               }`}>
               <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
                 <span className="flex items-center gap-1 font-bold">
-                  <span>GAS LEVEL</span>
-                  {isGasCritical && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping"></span>}
+                  <span>WATER / PROBE TEMP</span>
+                  {isTempCritical && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping"></span>}
                 </span>
-                <Droplets className={`w-3.5 h-3.5 ${isGasCritical ? 'text-red-400' : isGasWarning ? 'text-amber-400' : 'text-cyan-400'}`} />
+                <Thermometer className={`w-3.5 h-3.5 ${isTempCritical ? 'text-red-400' : isTempWarning ? 'text-amber-400' : 'text-cyan-400'}`} />
               </div>
 
               <div className="my-1.5">
-                <span className={`text-2xl sm:text-3xl font-black font-mono ${isGasCritical ? 'text-red-400' : isGasWarning ? 'text-amber-300' : 'text-white'
+                <span className={`text-2xl sm:text-3xl font-black font-mono ${isTempCritical ? 'text-red-400' : isTempWarning ? 'text-amber-300' : 'text-white'
                   }`}>
-                  {isRobotConnected && telemetry.timestamp ? telemetry.gas : '--'}
+                  {isRobotConnected && telemetry.timestamp && telemetry.temperature !== null ? telemetry.temperature.toFixed(1) : '--'}
+                </span>
+                <span className="text-xs font-mono text-cyan-400 ml-1">{isRobotConnected && telemetry.timestamp && telemetry.temperature !== null ? '°C' : ''}</span>
+                {isRobotConnected && telemetry.timestamp && telemetry.temperature !== null && (
+                  <span className="text-[10px] font-mono text-slate-400 ml-2">
+                    ({((telemetry.temperature * 9) / 5 + 32).toFixed(1)}°F)
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-[9px] font-mono text-slate-400 flex items-center justify-between">
+                  <span>DS18B20 Waterproof</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                    isTempCritical
+                      ? 'bg-red-900 text-red-200'
+                      : isTempWarning
+                        ? 'bg-amber-900/80 text-amber-200'
+                        : telemetry.temperature !== null
+                          ? 'bg-slate-800 text-emerald-300'
+                          : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {telemetry.temperature === null ? 'STANDBY' : isTempCritical ? 'THERMAL ALERT' : isTempWarning ? 'ELEVATED' : 'NOMINAL'}
+                  </span>
+                </div>
+                <div className="text-[8.5px] font-mono text-slate-400 border-t border-slate-800/80 pt-1 flex justify-between">
+                  <span>Safe: 5°C - 38°C</span>
+                  <span className={isTempCritical ? 'text-red-400 font-bold' : 'text-slate-400'}>Limit: &gt;50°C</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. GAS SENSOR 1 (MQ-4/MQ-2 Flammable / Sewer Gas) */}
+            <div className={`p-3 rounded-xl flex flex-col justify-between transition-all ${isGas1Critical
+                ? 'bg-red-950/80 border-2 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
+                : isGas1Warning
+                  ? 'bg-amber-950/40 border border-amber-500/70 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                  : 'bg-[#06101e] border border-cyan-500/30 hover:border-cyan-400'
+              }`}>
+              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                <span className="flex items-center gap-1 font-bold">
+                  <span>GAS 1 (SEWER/METHANE)</span>
+                  {isGas1Critical && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping"></span>}
+                </span>
+                <Flame className={`w-3.5 h-3.5 ${isGas1Critical ? 'text-red-400' : isGas1Warning ? 'text-amber-400' : 'text-cyan-400'}`} />
+              </div>
+
+              <div className="my-1.5">
+                <span className={`text-2xl sm:text-3xl font-black font-mono ${isGas1Critical ? 'text-red-400' : isGas1Warning ? 'text-amber-300' : 'text-white'
+                  }`}>
+                  {isRobotConnected && telemetry.timestamp ? telemetry.gas1 : '--'}
                 </span>
                 <span className="text-[10px] font-mono text-slate-400 ml-1">{isRobotConnected && telemetry.timestamp ? 'RAW' : ''}</span>
               </div>
 
               <div className="space-y-1">
                 <div className="text-[9px] font-mono flex items-center justify-between">
-                  <span className={isGasCritical ? 'text-red-300 font-bold' : isGasWarning ? 'text-amber-300 font-bold' : 'text-emerald-400 font-semibold'}>
-                    {isGasCritical ? '⚠️ Toxic Sewer Gas' : isGasWarning ? '🟡 Elevated Gas' : '🟢 Atmosphere Normal'}
+                  <span className={isGas1Critical ? 'text-red-300 font-bold' : isGas1Warning ? 'text-amber-300 font-bold' : 'text-emerald-400 font-semibold'}>
+                    Pin 34 Analog
                   </span>
-                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${isGasCritical ? 'bg-red-900 text-red-200' : isGasWarning ? 'bg-amber-900/80 text-amber-200' : 'bg-slate-800 text-emerald-300'
+                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${isGas1Critical ? 'bg-red-900 text-red-200' : isGas1Warning ? 'bg-amber-900/80 text-amber-200' : 'bg-slate-800 text-emerald-300'
                     }`}>
-                    {isGasCritical ? 'GAS BREACH' : isGasWarning ? 'CAUTION' : 'SAFE'}
+                    {isGas1Critical ? 'HAZARD BREACH' : isGas1Warning ? 'CAUTION' : 'SAFE'}
                   </span>
                 </div>
                 <div className="text-[8.5px] font-mono text-slate-400 border-t border-slate-800/80 pt-1 flex justify-between">
                   <span>Safe: &lt;700 RAW</span>
-                  <span className={isGasCritical ? 'text-red-400 font-bold' : 'text-slate-400'}>Limit: &gt;1500 RAW</span>
+                  <span className={isGas1Critical ? 'text-red-400 font-bold' : 'text-slate-400'}>Limit: &gt;1500 RAW</span>
                 </div>
               </div>
             </div>
 
-            {/* 4. DISTANCE */}
+            {/* 5. GAS SENSOR 2 (MQ-135 Toxic Sewer Atmosphere) */}
+            <div className={`p-3 rounded-xl flex flex-col justify-between transition-all ${isGas2Critical
+                ? 'bg-red-950/80 border-2 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
+                : isGas2Warning
+                  ? 'bg-amber-950/40 border border-amber-500/70 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                  : 'bg-[#06101e] border border-cyan-500/30 hover:border-cyan-400'
+              }`}>
+              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                <span className="flex items-center gap-1 font-bold">
+                  <span>GAS 2 (TOXIC/CO ATM)</span>
+                  {isGas2Critical && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping"></span>}
+                </span>
+                <Droplets className={`w-3.5 h-3.5 ${isGas2Critical ? 'text-red-400' : isGas2Warning ? 'text-amber-400' : 'text-cyan-400'}`} />
+              </div>
+
+              <div className="my-1.5">
+                <span className={`text-2xl sm:text-3xl font-black font-mono ${isGas2Critical ? 'text-red-400' : isGas2Warning ? 'text-amber-300' : 'text-white'
+                  }`}>
+                  {isRobotConnected && telemetry.timestamp ? telemetry.gas2 : '--'}
+                </span>
+                <span className="text-[10px] font-mono text-slate-400 ml-1">{isRobotConnected && telemetry.timestamp ? 'RAW' : ''}</span>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-[9px] font-mono flex items-center justify-between">
+                  <span className={isGas2Critical ? 'text-red-300 font-bold' : isGas2Warning ? 'text-amber-300 font-bold' : 'text-emerald-400 font-semibold'}>
+                    Pin 35 Analog
+                  </span>
+                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${isGas2Critical ? 'bg-red-900 text-red-200' : isGas2Warning ? 'bg-amber-900/80 text-amber-200' : 'bg-slate-800 text-emerald-300'
+                    }`}>
+                    {isGas2Critical ? 'TOXIC BREACH' : isGas2Warning ? 'CAUTION' : 'SAFE'}
+                  </span>
+                </div>
+                <div className="text-[8.5px] font-mono text-slate-400 border-t border-slate-800/80 pt-1 flex justify-between">
+                  <span>Safe: &lt;700 RAW</span>
+                  <span className={isGas2Critical ? 'text-red-400 font-bold' : 'text-slate-400'}>Limit: &gt;1500 RAW</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 6. DISTANCE */}
             <div className={`p-3 rounded-xl flex flex-col justify-between transition-all ${isDistanceCritical
                 ? 'bg-red-950/80 border-2 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
                 : isDistanceWarning
@@ -1130,7 +1246,7 @@ export default function PhysicalRobotConsole() {
               </div>
             </div>
 
-            {/* 5. ACCELERATION X & Y */}
+            {/* 7. ACCELERATION X & Y */}
             <div className="p-3 rounded-xl bg-[#06101e] border border-cyan-500/30 flex flex-col justify-between hover:border-cyan-400 transition-all">
               <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
                 <span>ACCEL [X, Y]</span>
@@ -1149,7 +1265,7 @@ export default function PhysicalRobotConsole() {
               </div>
             </div>
 
-            {/* 6. ACCELERATION Z */}
+            {/* 8. ACCELERATION Z */}
             <div className="p-3 rounded-xl bg-[#06101e] border border-cyan-500/30 flex flex-col justify-between hover:border-cyan-400 transition-all">
               <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
                 <span>ACCEL [Z]</span>
@@ -1163,6 +1279,36 @@ export default function PhysicalRobotConsole() {
               </div>
               <div className="text-[9px] font-mono text-slate-400">
                 MPU6050 Vertical Axis
+              </div>
+            </div>
+
+            {/* 9. FASTLED & SERIAL2 SUBSYSTEMS */}
+            <div className="p-3 rounded-xl bg-[#06101e] border border-cyan-500/30 flex flex-col justify-between hover:border-cyan-400 transition-all">
+              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                <span className="font-bold">SUBSYSTEM STATUS</span>
+                <Sun className="w-3.5 h-3.5 text-amber-400" />
+              </div>
+
+              <div className="my-1.5 space-y-1 font-mono">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300">FastLED 20x WS2812B:</span>
+                  <span className="text-emerald-400 font-bold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    ACTIVE
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300">Serial2 Remote Link:</span>
+                  <span className="text-cyan-300 font-bold flex items-center gap-1">
+                    <Radio className="w-3 h-3 text-cyan-400" />
+                    115200 Baud
+                  </span>
+                </div>
+              </div>
+
+              <div className="text-[9px] font-mono text-slate-400 border-t border-slate-800/80 pt-1 flex justify-between">
+                <span>Pin 27 DIN • 80 Bright</span>
+                <span>Pins 16/17 UART</span>
               </div>
             </div>
 

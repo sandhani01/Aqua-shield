@@ -492,14 +492,22 @@ function handleSerialData(chunk) {
       try {
         const parsed = JSON.parse(trimmed);
         if (parsed.type === 'telemetry') {
+          const g1 = typeof parsed.gas1 === 'number' ? parsed.gas1 : (typeof parsed.gas === 'number' ? parsed.gas : 0);
+          const g2 = typeof parsed.gas2 === 'number' ? parsed.gas2 : (typeof parsed.gas === 'number' ? parsed.gas : 0);
+          const temp = typeof parsed.temperature === 'number' ? parsed.temperature : (typeof parsed.probeTemp === 'number' ? parsed.probeTemp : null);
+
           lastTelemetry = {
             voltage: typeof parsed.voltage === 'number' ? parsed.voltage : 0,
             current: typeof parsed.current === 'number' ? parsed.current : 0,
-            gas: typeof parsed.gas === 'number' ? parsed.gas : 0,
+            gas: Math.max(g1, g2),
+            gas1: g1,
+            gas2: g2,
+            temperature: temp,
+            probeTemp: temp,
             distance: typeof parsed.distance === 'number' ? parsed.distance : -1,
-            accelX: parsed.accel?.x ?? 0,
-            accelY: parsed.accel?.y ?? 0,
-            accelZ: parsed.accel?.z ?? 0,
+            accelX: parsed.accel?.x ?? (parsed.accelX ?? 0),
+            accelY: parsed.accel?.y ?? (parsed.accelY ?? 0),
+            accelZ: parsed.accel?.z ?? (parsed.accelZ ?? 0),
             command: parsed.command || 'S',
             moving: Boolean(parsed.moving),
             timestamp: Date.now(),
@@ -514,11 +522,50 @@ function handleSerialData(chunk) {
           continue;
         }
       } catch {
-        // Fall through to legacy parser if JSON parsing fails
+        // Fall through to legacy/CSV parser if JSON parsing fails
       }
     }
 
-    // 2. Legacy Human-Readable Block Fallback
+    // 2. CSV Telemetry Parser (distance,gas1,gas2,probeTemp,voltage,current,ax,ay,az)
+    if (trimmed.includes(',')) {
+      const parts = trimmed.split(',');
+      if (parts.length >= 7 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1]))) {
+        const distance = parseFloat(parts[0]);
+        const gas1 = parseInt(parts[1], 10) || 0;
+        const gas2 = parts.length >= 8 ? (parseInt(parts[2], 10) || 0) : gas1;
+        const probeTemp = parts.length >= 9 ? parseFloat(parts[3]) : null;
+        const voltageIdx = parts.length >= 9 ? 4 : 2;
+        const currentIdx = parts.length >= 9 ? 5 : 3;
+        const axIdx = parts.length >= 9 ? 6 : 4;
+        const ayIdx = parts.length >= 9 ? 7 : 5;
+        const azIdx = parts.length >= 9 ? 8 : 6;
+
+        lastTelemetry = {
+          distance: isNaN(distance) ? -1 : distance,
+          gas1: gas1,
+          gas2: gas2,
+          gas: Math.max(gas1, gas2),
+          temperature: probeTemp !== null && !isNaN(probeTemp) ? probeTemp : null,
+          probeTemp: probeTemp !== null && !isNaN(probeTemp) ? probeTemp : null,
+          voltage: parseFloat(parts[voltageIdx]) || 0,
+          current: parseFloat(parts[currentIdx]) || 0,
+          accelX: parseFloat(parts[axIdx]) || 0,
+          accelY: parseFloat(parts[ayIdx]) || 0,
+          accelZ: parseFloat(parts[azIdx]) || 0,
+          command: 'S',
+          moving: false,
+          timestamp: Date.now(),
+        };
+
+        broadcast({
+          type: 'telemetry',
+          data: lastTelemetry,
+        });
+        continue;
+      }
+    }
+
+    // 3. Legacy Human-Readable Block Fallback
     if (trimmed.includes('--- TELEMETRY DATA ---')) {
       isCapturingTelemetry = true;
       telemetryBuffer = {
